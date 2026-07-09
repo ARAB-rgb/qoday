@@ -1,0 +1,12 @@
+{
+  "name": "كاشير البقالة البسيط",
+  "description": "نظام كاشير ونقاط بيع متكامل ومبسط للبقالات والتموينات، يدعم إدارة المنتجات والباركود والطباعة ومحاكاة الدفع الإلكتروني المباشر.",
+  "requestFramePermissions": [
+    "camera",
+    "bluetooth",
+    "usb"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
