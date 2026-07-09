@@ -14,7 +14,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
 
-import { Product, CartItem, PaymentMethod, Order, Toast, HardwareDevice } from './types';
+import { Product, CartItem, PaymentMethod, Order, Toast, HardwareDevice, Company } from './types';
 import { DEFAULT_PRODUCTS, CATEGORIES } from './data/defaultProducts';
 import ToastContainer from './components/ToastContainer';
 import Receipt from './components/Receipt';
@@ -23,6 +23,9 @@ import PaymentTerminal from './components/PaymentTerminal';
 import ProductManager from './components/ProductManager';
 import OrderHistory from './components/OrderHistory';
 import DeviceManager from './components/DeviceManager';
+import CompanyManager from './components/CompanyManager';
+import QaydDashboard from './components/QaydDashboard';
+import QaydLogo from './components/QaydLogo';
 import { LanguageCode, LANGUAGES, t, translateProduct, translateCategory } from './lib/translations';
 
 const INITIAL_DEVICES: HardwareDevice[] = [
@@ -80,47 +83,165 @@ const INITIAL_DEVICES: HardwareDevice[] = [
   }
 ];
 
+const INITIAL_COMPANIES: Company[] = [
+  {
+    id: 'comp-1',
+    name: 'بقالة البركة والخيرات',
+    vatNumber: '300055443300003',
+    crNumber: '1010000000',
+    vatRate: 15,
+    welcomeMsg: 'نشكركم لتسوقكم معنا في بقالة البركة والخيرات!',
+    subscriptionPlan: 'premium',
+    subscriptionExpiry: '2027-01-01',
+    maxProductsLimit: 100
+  },
+  {
+    id: 'comp-2',
+    name: 'أسواق ومخابز الياسمين',
+    vatNumber: '311188442200003',
+    crNumber: '1010444555',
+    vatRate: 15,
+    welcomeMsg: 'أسواق ومخابز الياسمين ترحب بكم وتتمنى لكم يوماً سعيداً!',
+    subscriptionPlan: 'basic',
+    subscriptionExpiry: '2026-12-15',
+    maxProductsLimit: 25
+  },
+  {
+    id: 'comp-3',
+    name: 'سوبرماركت النخبة الراقية',
+    vatNumber: '300099887700003',
+    crNumber: '1010888999',
+    vatRate: 15,
+    welcomeMsg: 'عميلنا العزيز، نشكر لك ثقتك في النخبة الراقية!',
+    subscriptionPlan: 'free',
+    subscriptionExpiry: '2026-08-01',
+    maxProductsLimit: 5
+  }
+];
+
+const getPlanNameArabic = (plan: 'free' | 'basic' | 'premium' | 'enterprise' | undefined) => {
+  switch (plan) {
+    case 'free': return 'الباقة المجانية (حد 5 منتجات)';
+    case 'basic': return 'باقة التموينات الأساسية (حد 25 منتج)';
+    case 'premium': return 'الباقة الذهبية للمحلات (حد 100 منتج)';
+    case 'enterprise': return 'الباقة اللامحدودة للشركات (لامحدود)';
+    default: return 'الباقة المجانية';
+  }
+};
+
+const getPlanBadgeStyle = (plan: 'free' | 'basic' | 'premium' | 'enterprise' | undefined) => {
+  switch (plan) {
+    case 'free': return 'bg-slate-100 text-slate-700 border-slate-200';
+    case 'basic': return 'bg-indigo-50 text-indigo-700 border-indigo-200';
+    case 'premium': return 'bg-amber-50 text-amber-700 border-amber-200';
+    case 'enterprise': return 'bg-purple-50 text-purple-700 border-purple-200';
+    default: return 'bg-slate-100 text-slate-700 border-slate-200';
+  }
+};
+
 export default function App() {
+  // --- Multi-Company / Multi-Tenant State ---
+  const [companies, setCompanies] = useState<Company[]>(() => {
+    try {
+      const saved = localStorage.getItem('pos_companies');
+      return saved ? JSON.parse(saved) : INITIAL_COMPANIES;
+    } catch (e) {
+      console.error("Failed to parse pos_companies:", e);
+      return INITIAL_COMPANIES;
+    }
+  });
+
+  const [currentCompanyId, setCurrentCompanyId] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem('pos_current_company_id');
+      return saved || 'comp-1';
+    } catch (e) {
+      return 'comp-1';
+    }
+  });
+
+  const [isCompanyManagerOpen, setIsCompanyManagerOpen] = useState<boolean>(false);
+
+  // --- Supabase Cloud Sync State ---
+  const [supabaseConfigured, setSupabaseConfigured] = useState<boolean>(false);
+  const [supabaseSyncStatus, setSupabaseSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error' | 'not_set'>('idle');
+  const [supabaseErrorType, setSupabaseErrorType] = useState<'TABLE_NOT_FOUND' | 'OTHER' | null>(null);
+  const [isSupabaseSyncEnabled, setIsSupabaseSyncEnabled] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('pos_supabase_sync_enabled');
+      return saved !== 'false'; // default to true if not set
+    } catch (e) {
+      return true;
+    }
+  });
+
   // --- Persistent Storage State ---
   const [products, setProducts] = useState<Product[]>(() => {
-    const saved = localStorage.getItem('pos_products');
-    const rawList: Product[] = saved ? JSON.parse(saved) : DEFAULT_PRODUCTS;
-    const seenIds = new Set<string>();
-    let hasUpdated = false;
-    const sanitized = rawList.map((prod, idx) => {
-      let finalId = prod.id;
-      if (!finalId || seenIds.has(finalId)) {
-        const randomSuffix = Math.random().toString(36).substring(2, 9);
-        finalId = `prod-${Date.now()}-${idx}-${randomSuffix}`;
-        hasUpdated = true;
+    try {
+      // Check if namespaced products exist, otherwise migrate or seed
+      const companyId = localStorage.getItem('pos_current_company_id') || 'comp-1';
+      
+      // Migration: If we have old non-namespaced pos_products but no namespaced ones, copy it over!
+      const oldProducts = localStorage.getItem('pos_products');
+      if (oldProducts && !localStorage.getItem(`pos_products_${companyId}`)) {
+        localStorage.setItem(`pos_products_${companyId}`, oldProducts);
       }
-      seenIds.add(finalId);
-      return { ...prod, id: finalId };
-    });
-    if (hasUpdated) {
-      localStorage.setItem('pos_products', JSON.stringify(sanitized));
+
+      const saved = localStorage.getItem(`pos_products_${companyId}`);
+      const rawList: Product[] = saved ? JSON.parse(saved) : (companyId === 'comp-1' ? DEFAULT_PRODUCTS : DEFAULT_PRODUCTS.slice(0, 8));
+      const seenIds = new Set<string>();
+      let hasUpdated = false;
+      const sanitized = rawList.map((prod, idx) => {
+        let finalId = prod.id;
+        if (!finalId || seenIds.has(finalId)) {
+          const randomSuffix = Math.random().toString(36).substring(2, 9);
+          finalId = `prod-${Date.now()}-${idx}-${randomSuffix}`;
+          hasUpdated = true;
+        }
+        seenIds.add(finalId);
+        return { ...prod, id: finalId };
+      });
+      if (hasUpdated) {
+        localStorage.setItem(`pos_products_${companyId}`, JSON.stringify(sanitized));
+      }
+      return sanitized;
+    } catch (e) {
+      console.error("Failed to parse products:", e);
+      return DEFAULT_PRODUCTS;
     }
-    return sanitized;
   });
 
   const [orders, setOrders] = useState<Order[]>(() => {
-    const saved = localStorage.getItem('pos_orders');
-    const rawOrders: Order[] = saved ? JSON.parse(saved) : [];
-    const seenOrderIds = new Set<string>();
-    let hasUpdated = false;
-    const sanitized = rawOrders.map((ord, idx) => {
-      let finalId = ord.id;
-      if (!finalId || seenOrderIds.has(finalId)) {
-        finalId = `order-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 9)}`;
-        hasUpdated = true;
+    try {
+      const companyId = localStorage.getItem('pos_current_company_id') || 'comp-1';
+
+      // Migration for orders
+      const oldOrders = localStorage.getItem('pos_orders');
+      if (oldOrders && !localStorage.getItem(`pos_orders_${companyId}`)) {
+        localStorage.setItem(`pos_orders_${companyId}`, oldOrders);
       }
-      seenOrderIds.add(finalId);
-      return { ...ord, id: finalId };
-    });
-    if (hasUpdated) {
-      localStorage.setItem('pos_orders', JSON.stringify(sanitized));
+
+      const saved = localStorage.getItem(`pos_orders_${companyId}`);
+      const rawOrders: Order[] = saved ? JSON.parse(saved) : [];
+      const seenOrderIds = new Set<string>();
+      let hasUpdated = false;
+      const sanitized = rawOrders.map((ord, idx) => {
+        let finalId = ord.id;
+        if (!finalId || seenOrderIds.has(finalId)) {
+          finalId = `order-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 9)}`;
+          hasUpdated = true;
+        }
+        seenOrderIds.add(finalId);
+        return { ...ord, id: finalId };
+      });
+      if (hasUpdated) {
+        localStorage.setItem(`pos_orders_${companyId}`, JSON.stringify(sanitized));
+      }
+      return sanitized;
+    } catch (e) {
+      console.error("Failed to parse orders:", e);
+      return [];
     }
-    return sanitized;
   });
 
   // --- POS Session State ---
@@ -144,8 +265,13 @@ export default function App() {
 
   // --- Hardware Connections & Simulation State ---
   const [devices, setDevices] = useState<HardwareDevice[]>(() => {
-    const saved = localStorage.getItem('pos_devices');
-    return saved ? JSON.parse(saved) : INITIAL_DEVICES;
+    try {
+      const saved = localStorage.getItem('pos_devices');
+      return saved ? JSON.parse(saved) : INITIAL_DEVICES;
+    } catch (e) {
+      console.error("Failed to parse pos_devices:", e);
+      return INITIAL_DEVICES;
+    }
   });
   const [scaleWeight, setScaleWeight] = useState<number>(1.45); // default mock weight of 1.45 kg
   const [isDeviceManagerOpen, setIsDeviceManagerOpen] = useState<boolean>(false);
@@ -189,6 +315,7 @@ export default function App() {
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [activeReceiptOrder, setActiveReceiptOrder] = useState<Order | null>(null);
   const [isOfflineModalOpen, setIsOfflineModalOpen] = useState(false);
+  const [isQaydDashboardOpen, setIsQaydDashboardOpen] = useState(false);
   const [showClearCartConfirm, setShowClearCartConfirm] = useState<boolean>(false);
 
   // --- PWA Installation states ---
@@ -224,15 +351,98 @@ export default function App() {
   // --- Refs ---
   const barcodeInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Synchronize products to localStorage
+  // Synchronize companies to localStorage
   useEffect(() => {
-    localStorage.setItem('pos_products', JSON.stringify(products));
-  }, [products]);
+    localStorage.setItem('pos_companies', JSON.stringify(companies));
+  }, [companies]);
 
-  // Synchronize orders to localStorage
+  // Synchronize selected company ID to localStorage
   useEffect(() => {
-    localStorage.setItem('pos_orders', JSON.stringify(orders));
-  }, [orders]);
+    localStorage.setItem('pos_current_company_id', currentCompanyId);
+  }, [currentCompanyId]);
+
+  // Synchronize products to company-specific localStorage
+  useEffect(() => {
+    if (currentCompanyId) {
+      localStorage.setItem(`pos_products_${currentCompanyId}`, JSON.stringify(products));
+    }
+  }, [products, currentCompanyId]);
+
+  // Synchronize orders to company-specific localStorage
+  useEffect(() => {
+    if (currentCompanyId) {
+      localStorage.setItem(`pos_orders_${currentCompanyId}`, JSON.stringify(orders));
+    }
+  }, [orders, currentCompanyId]);
+
+  // Handle switching company: load correct values
+  useEffect(() => {
+    const comp = companies.find(c => c.id === currentCompanyId);
+    if (comp) {
+      setStoreName(comp.name);
+      setStoreVat(comp.vatNumber);
+      setStoreCr(comp.crNumber);
+      setStoreVatRate(comp.vatRate);
+      setWelcomeMsg(comp.welcomeMsg);
+
+      const savedProducts = localStorage.getItem(`pos_products_${currentCompanyId}`);
+      if (savedProducts) {
+        try {
+          setProducts(JSON.parse(savedProducts));
+        } catch (e) {
+          console.error("Failed to parse savedProducts during switch:", e);
+          if (currentCompanyId === 'comp-1') {
+            setProducts(DEFAULT_PRODUCTS);
+          } else if (currentCompanyId === 'comp-2') {
+            setProducts(DEFAULT_PRODUCTS.slice(0, 12));
+          } else if (currentCompanyId === 'comp-3') {
+            setProducts(DEFAULT_PRODUCTS.slice(0, 5));
+          } else {
+            setProducts(DEFAULT_PRODUCTS.slice(0, 3));
+          }
+        }
+      } else {
+        if (currentCompanyId === 'comp-1') {
+          setProducts(DEFAULT_PRODUCTS);
+        } else if (currentCompanyId === 'comp-2') {
+          setProducts(DEFAULT_PRODUCTS.slice(0, 12));
+        } else if (currentCompanyId === 'comp-3') {
+          setProducts(DEFAULT_PRODUCTS.slice(0, 5));
+        } else {
+          setProducts(DEFAULT_PRODUCTS.slice(0, 3));
+        }
+      }
+
+      const savedOrders = localStorage.getItem(`pos_orders_${currentCompanyId}`);
+      if (savedOrders) {
+        try {
+          setOrders(JSON.parse(savedOrders));
+        } catch (e) {
+          console.error("Failed to parse savedOrders during switch:", e);
+          setOrders([]);
+        }
+      } else {
+        setOrders([]);
+      }
+    }
+  }, [currentCompanyId]);
+
+  // Keep the current company's metadata in 'companies' in sync with active settings fields
+  useEffect(() => {
+    setCompanies(prev => prev.map(c => {
+      if (c.id === currentCompanyId) {
+        return {
+          ...c,
+          name: storeName,
+          vatNumber: storeVat,
+          crNumber: storeCr,
+          vatRate: storeVatRate,
+          welcomeMsg: welcomeMsg
+        };
+      }
+      return c;
+    }));
+  }, [storeName, storeVat, storeCr, storeVatRate, welcomeMsg, currentCompanyId]);
 
   // Synchronize hardware devices state to localStorage
   useEffect(() => {
@@ -272,6 +482,219 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('pos_welcome_msg', welcomeMsg);
   }, [welcomeMsg]);
+
+  // --- Supabase Cloud Sync Methods & Effects ---
+  
+  // Persist sync toggle
+  useEffect(() => {
+    localStorage.setItem('pos_supabase_sync_enabled', isSupabaseSyncEnabled.toString());
+  }, [isSupabaseSyncEnabled]);
+
+  const loadAllFromSupabase = async () => {
+    setSupabaseSyncStatus('syncing');
+    try {
+      // 1. Fetch companies
+      const resComp = await fetch('/api/supabase/companies');
+      if (!resComp.ok) {
+        const errData = await resComp.json();
+        if (errData.errorType === 'TABLE_NOT_FOUND') {
+          setSupabaseErrorType('TABLE_NOT_FOUND');
+          setSupabaseSyncStatus('error');
+          return;
+        }
+        throw new Error(errData.error || "Failed to fetch companies");
+      }
+      const dataComp = await resComp.json();
+      if (dataComp.companies && dataComp.companies.length > 0) {
+        setCompanies(dataComp.companies);
+        
+        // Find if current company is inside
+        const activeId = localStorage.getItem('pos_current_company_id') || 'comp-1';
+        const hasActive = dataComp.companies.some((c: any) => c.id === activeId);
+        const finalActiveId = hasActive ? activeId : dataComp.companies[0].id;
+        if (finalActiveId !== activeId) {
+          setCurrentCompanyId(finalActiveId);
+        }
+      }
+
+      // 2. Fetch products for current active company
+      const activeId = localStorage.getItem('pos_current_company_id') || 'comp-1';
+      const resProd = await fetch(`/api/supabase/products?companyId=${activeId}`);
+      if (resProd.ok) {
+        const dataProd = await resProd.json();
+        if (dataProd.products && dataProd.products.length > 0) {
+          setProducts(dataProd.products);
+        }
+      }
+
+      // 3. Fetch orders for current active company
+      const resOrd = await fetch(`/api/supabase/orders?companyId=${activeId}`);
+      if (resOrd.ok) {
+        const dataOrd = await resOrd.json();
+        if (dataOrd.orders && dataOrd.orders.length > 0) {
+          setOrders(dataOrd.orders);
+        }
+      }
+
+      setSupabaseSyncStatus('synced');
+      setSupabaseErrorType(null);
+    } catch (err: any) {
+      console.error("Supabase load error:", err);
+      setSupabaseSyncStatus('error');
+    }
+  };
+
+  const syncAllWithSupabase = async (
+    targetCompanies = companies,
+    targetProducts = products,
+    targetOrders = orders,
+    targetCompanyId = currentCompanyId
+  ) => {
+    if (!supabaseConfigured || !isSupabaseSyncEnabled) return;
+    setSupabaseSyncStatus('syncing');
+    try {
+      // 1. Sync companies
+      const resComp = await fetch('/api/supabase/sync-companies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companies: targetCompanies })
+      });
+      if (!resComp.ok) {
+        const errData = await resComp.json();
+        if (errData.errorType === 'TABLE_NOT_FOUND') {
+          setSupabaseErrorType('TABLE_NOT_FOUND');
+          setSupabaseSyncStatus('error');
+          return;
+        }
+        throw new Error(errData.error || "Failed to sync companies");
+      }
+
+      // 2. Sync products
+      if (targetCompanyId) {
+        const resProd = await fetch('/api/supabase/sync-products', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ products: targetProducts, companyId: targetCompanyId })
+        });
+        if (!resProd.ok) {
+          const errData = await resProd.json();
+          if (errData.errorType === 'TABLE_NOT_FOUND') {
+            setSupabaseErrorType('TABLE_NOT_FOUND');
+            setSupabaseSyncStatus('error');
+            return;
+          }
+          throw new Error(errData.error || "Failed to sync products");
+        }
+
+        // 3. Sync orders
+        const resOrd = await fetch('/api/supabase/sync-orders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orders: targetOrders, companyId: targetCompanyId })
+        });
+        if (!resOrd.ok) {
+          const errData = await resOrd.json();
+          if (errData.errorType === 'TABLE_NOT_FOUND') {
+            setSupabaseErrorType('TABLE_NOT_FOUND');
+            setSupabaseSyncStatus('error');
+            return;
+          }
+          throw new Error(errData.error || "Failed to sync orders");
+        }
+      }
+
+      setSupabaseSyncStatus('synced');
+      setSupabaseErrorType(null);
+    } catch (err: any) {
+      console.error("Supabase sync error:", err);
+      setSupabaseSyncStatus('error');
+    }
+  };
+
+  // Check Supabase configuration status on load
+  useEffect(() => {
+    const checkSupabaseConfig = async () => {
+      try {
+        const res = await fetch('/api/supabase/config');
+        const data = await res.json();
+        if (data.configured) {
+          setSupabaseConfigured(true);
+          if (isSupabaseSyncEnabled) {
+            // Wait slightly for local states to settle
+            setTimeout(() => {
+              loadAllFromSupabase();
+            }, 300);
+          }
+        } else {
+          setSupabaseConfigured(false);
+          setSupabaseSyncStatus('not_set');
+        }
+      } catch (err) {
+        console.error("Failed to check Supabase config:", err);
+        setSupabaseSyncStatus('error');
+      }
+    };
+    checkSupabaseConfig();
+  }, [isSupabaseSyncEnabled]);
+
+  // Handle switching company or initial change - fetch company data
+  useEffect(() => {
+    if (supabaseConfigured && isSupabaseSyncEnabled && currentCompanyId) {
+      const fetchCompanySpecifics = async () => {
+        setSupabaseSyncStatus('syncing');
+        try {
+          // Fetch products
+          const resProd = await fetch(`/api/supabase/products?companyId=${currentCompanyId}`);
+          if (!resProd.ok) {
+            const dataProdErr = await resProd.json();
+            if (dataProdErr.errorType === 'TABLE_NOT_FOUND') {
+              setSupabaseErrorType('TABLE_NOT_FOUND');
+              setSupabaseSyncStatus('error');
+              return;
+            }
+            throw new Error(dataProdErr.error || "Failed to fetch products");
+          }
+          const dataProd = await resProd.json();
+          if (dataProd.products) {
+            setProducts(dataProd.products);
+          }
+
+          // Fetch orders
+          const resOrd = await fetch(`/api/supabase/orders?companyId=${currentCompanyId}`);
+          if (!resOrd.ok) {
+            const dataOrdErr = await resOrd.json();
+            if (dataOrdErr.errorType === 'TABLE_NOT_FOUND') {
+              setSupabaseErrorType('TABLE_NOT_FOUND');
+              setSupabaseSyncStatus('error');
+              return;
+            }
+            throw new Error(dataOrdErr.error || "Failed to fetch orders");
+          }
+          const dataOrd = await resOrd.json();
+          if (dataOrd.orders) {
+            setOrders(dataOrd.orders);
+          }
+          setSupabaseSyncStatus('synced');
+          setSupabaseErrorType(null);
+        } catch (err) {
+          console.error("Failed to fetch company specifics:", err);
+          setSupabaseSyncStatus('error');
+        }
+      };
+      fetchCompanySpecifics();
+    }
+  }, [currentCompanyId, supabaseConfigured, isSupabaseSyncEnabled]);
+
+  // Auto-sync products/orders/companies when they are modified
+  // We use primitive dependencies or single events to trigger this safely
+  useEffect(() => {
+    if (supabaseConfigured && isSupabaseSyncEnabled) {
+      const delayDebounce = setTimeout(() => {
+        syncAllWithSupabase(companies, products, orders, currentCompanyId);
+      }, 1500); // 1.5s debounce to save API requests
+      return () => clearTimeout(delayDebounce);
+    }
+  }, [products.length, orders.length, companies.length, supabaseConfigured, isSupabaseSyncEnabled]);
 
   // Focus barcode input on mount and whenever modals close
   useEffect(() => {
@@ -728,6 +1151,13 @@ export default function App() {
 
   // --- Product Management callbacks ---
   const handleAddProductToInventory = (newProd: Omit<Product, 'id'>) => {
+    const activeComp = companies.find(c => c.id === currentCompanyId);
+    const limit = activeComp ? activeComp.maxProductsLimit : 9999;
+    if (products.length >= limit) {
+      addToast(`خطأ في باقة الاشتراك ⚠️ لقد بلغت الحد الأقصى المسموح به (${limit} منتج) لباقة "${getPlanNameArabic(activeComp?.subscriptionPlan)}" لشركة "${activeComp?.name}". يرجى ترقية الباقة لزيادة الحد.`, 'error');
+      return;
+    }
+
     const randomSuffix = Math.random().toString(36).substring(2, 9);
     const fresh: Product = {
       id: `prod-${Date.now()}-${randomSuffix}`,
@@ -743,6 +1173,18 @@ export default function App() {
   };
 
   const handleBulkImportProducts = (itemsToAdd: Omit<Product, 'id'>[], itemsToEdit: Product[]) => {
+    const activeComp = companies.find(c => c.id === currentCompanyId);
+    const limit = activeComp ? activeComp.maxProductsLimit : 9999;
+    const currentProductCount = products.length;
+    const projectedCount = currentProductCount - itemsToEdit.length + itemsToAdd.length;
+
+    let finalItemsToAdd = [...itemsToAdd];
+    if (projectedCount > limit) {
+      const allowedAddCount = Math.max(0, limit - currentProductCount + itemsToEdit.length);
+      addToast(`تنبيه باقة الاشتراك ⚠️ تم تجاوز الحد الأقصى للمنتجات (${limit} منتج) لهذه الشركة. تم استيراد وتحديث السلع القديمة، ولكن تم قبول ${allowedAddCount} منتج جديد فقط. يرجى ترقية الاشتراك للاستيراد الكامل.`, 'warning');
+      finalItemsToAdd = itemsToAdd.slice(0, allowedAddCount);
+    }
+
     setProducts(prev => {
       const editMap = new Map<string, Product>();
       itemsToEdit.forEach(item => editMap.set(item.id, item));
@@ -750,7 +1192,7 @@ export default function App() {
       const updatedList = prev.map(p => editMap.has(p.id) ? editMap.get(p.id)! : p);
 
       const randomSuffix = () => Math.random().toString(36).substring(2, 9);
-      const newItemsWithIds: Product[] = itemsToAdd.map((item, index) => ({
+      const newItemsWithIds: Product[] = finalItemsToAdd.map((item, index) => ({
         id: `prod-${Date.now() + index}-${randomSuffix()}`,
         ...item
       }));
@@ -758,12 +1200,48 @@ export default function App() {
       return [...newItemsWithIds, ...updatedList];
     });
 
-    addToast(`نجحت العملية! تم استيراد ${itemsToAdd.length} منتج جديد وتحديث ${itemsToEdit.length} منتج سابق بنجاح.`, 'success');
+    if (finalItemsToAdd.length > 0 || itemsToEdit.length > 0) {
+      addToast(`نجحت العملية! تم استيراد ${finalItemsToAdd.length} منتج جديد وتحديث ${itemsToEdit.length} منتج سابق بنجاح.`, 'success');
+    }
   };
 
   const handleDeleteProductFromInventory = (id: string) => {
     setProducts(prev => prev.filter(p => p.id !== id));
     addToast('تم حذف السلعة نهائياً من الرفوف.', 'info');
+  };
+
+  // --- Company Management Callbacks ---
+  const handleSwitchCompany = (id: string) => {
+    setCurrentCompanyId(id);
+  };
+
+  const handleAddCompany = (newComp: Omit<Company, 'id'>) => {
+    const randomSuffix = Math.random().toString(36).substring(2, 9);
+    const fresh: Company = {
+      id: `comp-${Date.now()}-${randomSuffix}`,
+      ...newComp
+    };
+    setCompanies(prev => [...prev, fresh]);
+  };
+
+  const handleUpdateCompanyPlan = (companyId: string, plan: 'free' | 'basic' | 'premium' | 'enterprise', limit: number) => {
+    setCompanies(prev => prev.map(c => {
+      if (c.id === companyId) {
+        return {
+          ...c,
+          subscriptionPlan: plan,
+          maxProductsLimit: limit,
+          subscriptionExpiry: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] // Prolong 30 days
+        };
+      }
+      return c;
+    }));
+  };
+
+  const handleDeleteCompany = (id: string) => {
+    setCompanies(prev => prev.filter(c => c.id !== id));
+    localStorage.removeItem(`pos_products_${id}`);
+    localStorage.removeItem(`pos_orders_${id}`);
   };
 
   // --- Order History Refund handler ---
@@ -832,23 +1310,66 @@ export default function App() {
       {/* 1. Main Header */}
       <header className="bg-white border-b border-slate-200 px-6 py-4 flex flex-col md:flex-row items-center justify-between gap-4 shrink-0 print:hidden shadow-sm">
         {/* Title and stats summary */}
-        <div className="flex items-center gap-3">
-          <div className="bg-blue-600 p-2.5 rounded-xl text-white shadow-lg shadow-blue-500/10">
-            <ShoppingCart className="w-6 h-6 animate-pulse" />
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-3">
+            <div className="bg-gradient-to-tr from-teal-50 to-teal-100/50 border border-teal-200/50 p-1.5 rounded-xl shadow-md shadow-teal-500/5">
+              <QaydLogo size={38} showText={false} animated={true} />
+            </div>
+            <div className={`${isRtl ? 'text-right' : 'text-left'}`}>
+              <h1 className="text-lg font-black text-slate-800 flex items-center gap-1.5 flex-wrap">
+                <span>{t('app_title', currentLang)}</span>
+                <span className="text-[10px] bg-teal-50 text-teal-700 border border-teal-100 px-2 py-0.5 rounded-full font-extrabold">
+                  {t('pos_smart_badge', currentLang)}
+                </span>
+              </h1>
+              <p className="text-xs font-medium text-slate-500 mt-0.5">{t('app_subtitle', currentLang)}</p>
+            </div>
           </div>
-          <div className={`${isRtl ? 'text-right' : 'text-left'}`}>
-            <h1 className="text-lg font-bold text-slate-800 flex items-center gap-1.5 flex-wrap">
-              <span>{t('app_title', currentLang)}</span>
-              <span className="text-[10px] bg-blue-50 text-blue-600 border border-blue-100 px-2 py-0.5 rounded-full font-medium">
-                {t('pos_smart_badge', currentLang)}
+
+          <div className="h-8 w-[1px] bg-slate-200 hidden md:block"></div>
+
+          {/* Company Switcher Widget */}
+          <button
+            onClick={() => setIsCompanyManagerOpen(true)}
+            className="flex items-center gap-2.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl px-3.5 py-1.5 transition-all text-right cursor-pointer group shadow-sm active:scale-95"
+            id="company-switcher-trigger"
+          >
+            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white shrink-0 shadow-sm group-hover:scale-105 transition-transform">
+              <Layers className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="text-[9px] font-bold text-indigo-600 block leading-none mb-0.5">
+                {currentLang === 'ar' ? 'المؤسسة والاشتراك النشط 🏢' : 'Active Company & Subscription 🏢'}
               </span>
-            </h1>
-            <p className="text-xs text-slate-500 mt-0.5">{t('app_subtitle', currentLang)}</p>
-          </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-extrabold text-slate-800">{storeName}</span>
+                <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-full border ${getPlanBadgeStyle(companies.find(c => c.id === currentCompanyId)?.subscriptionPlan)}`}>
+                  {getPlanNameArabic(companies.find(c => c.id === currentCompanyId)?.subscriptionPlan).split(' (')[0]}
+                </span>
+                {supabaseConfigured && isSupabaseSyncEnabled && (
+                  <div className="flex items-center gap-1 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded-full" title={supabaseSyncStatus === 'synced' ? 'مزامنة سحابية نشطة' : 'جاري المزامنة...'}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${supabaseSyncStatus === 'synced' ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`} />
+                    <span className="text-[8px] font-black text-slate-500">سحابي</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </button>
         </div>
 
         {/* Global Action Bar */}
         <div className="flex flex-wrap items-center gap-2.5">
+          {/* QAYD Integrated System Dashboard Trigger Button */}
+          <button
+            onClick={() => setIsQaydDashboardOpen(true)}
+            className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-teal-600 via-teal-700 to-emerald-700 hover:from-teal-700 hover:to-emerald-800 text-white rounded-xl text-xs font-black transition-all active:scale-95 cursor-pointer shadow-lg shadow-teal-600/25 border border-teal-500/30 animate-pulse"
+            id="btn-open-qayd-dashboard"
+            style={{ animationDuration: '2.5s' }}
+          >
+            <QaydLogo size={18} showText={false} animated={false} />
+            <span>منظومة قيد (QAYD) المتكاملة 👑</span>
+          </button>
+
           {/* Language Selector Dropdown */}
           <div className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200/70 border border-slate-200 rounded-xl px-3 py-2 shadow-sm transition-all">
             <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Language / لغة:</span>
@@ -1577,6 +2098,31 @@ export default function App() {
         />
       )}
 
+      {/* H. MULTI-COMPANY & SUBSCRIPTION MANAGER */}
+      {isCompanyManagerOpen && (
+        <CompanyManager
+          companies={companies}
+          currentCompanyId={currentCompanyId}
+          onSwitchCompany={handleSwitchCompany}
+          onAddCompany={handleAddCompany}
+          onUpdateCompanyPlan={handleUpdateCompanyPlan}
+          onDeleteCompany={handleDeleteCompany}
+          onClose={() => setIsCompanyManagerOpen(false)}
+          currentProductCount={products.length}
+          addToast={addToast}
+          lang={currentLang === 'ar' ? 'ar' : 'en'}
+          supabaseConfigured={supabaseConfigured}
+          supabaseSyncStatus={supabaseSyncStatus}
+          supabaseErrorType={supabaseErrorType}
+          isSupabaseSyncEnabled={isSupabaseSyncEnabled}
+          onToggleSupabaseSync={(val) => setIsSupabaseSyncEnabled(val)}
+          onManualSync={() => {
+            syncAllWithSupabase(companies, products, orders, currentCompanyId);
+            addToast('جاري بدء مزامنة البيانات يدوياً مع Supabase سحابياً...', 'info');
+          }}
+        />
+      )}
+
       {/* Cashier Settings Modal */}
       {isCashierSettingsOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
@@ -1826,6 +2372,30 @@ export default function App() {
             </div>
           </div>
         </div>
+      )}
+      {isQaydDashboardOpen && (
+        <QaydDashboard
+          isOpen={isQaydDashboardOpen}
+          onClose={() => setIsQaydDashboardOpen(false)}
+          companies={companies}
+          setCompanies={setCompanies}
+          currentCompanyId={currentCompanyId}
+          setCurrentCompanyId={setCurrentCompanyId}
+          products={products}
+          setProducts={setProducts}
+          orders={orders}
+          setOrders={setOrders}
+          devices={devices}
+          storeName={storeName}
+          setStoreName={setStoreName}
+          storeVat={storeVat}
+          setStoreVat={setStoreVat}
+          storeCr={storeCr}
+          setStoreCr={setStoreCr}
+          storeVatRate={storeVatRate}
+          setStoreVatRate={setStoreVatRate}
+          addToast={addToast}
+        />
       )}
     </div>
   );

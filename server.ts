@@ -2,6 +2,7 @@ import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
+import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -11,6 +12,25 @@ async function startServer() {
   const PORT = 3000;
 
   app.use(express.json());
+
+  // Initialize Supabase Client
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+  const supabase = (supabaseUrl && supabaseAnonKey)
+    ? createClient(supabaseUrl, supabaseAnonKey)
+    : null;
+
+  // Helper to detect table not found errors gracefully from Supabase
+  const isTableNotFoundError = (error: any) => {
+    if (!error) return false;
+    const msg = (error.message || "").toLowerCase();
+    return (
+      error.code === "42P01" ||
+      msg.includes("could not find the table") ||
+      msg.includes("relation") && msg.includes("does not exist") ||
+      msg.includes("schema cache")
+    );
+  };
 
   // Initialize Gemini client safely
   const apiKey = process.env.GEMINI_API_KEY;
@@ -97,6 +117,288 @@ async function startServer() {
         isDemo: true, 
         warning: "حدثت مشكلة أثناء الاتصال بـ Gemini، تم توليد منتجات محاكاة ذكية بديلة." 
       });
+    }
+  });
+
+  // --- Supabase proxy API endpoints ---
+  
+  app.get("/api/supabase/config", (req, res) => {
+    res.json({
+      configured: !!supabase,
+      url: supabaseUrl ? `${supabaseUrl.substring(0, 15)}...` : undefined
+    });
+  });
+
+  // Fetch all companies from Supabase
+  app.get("/api/supabase/companies", async (req, res) => {
+    if (!supabase) {
+      return res.status(503).json({ error: "Supabase integration is not configured." });
+    }
+    try {
+      const { data, error } = await supabase
+        .from("companies")
+        .select("*")
+        .order("name", { ascending: true });
+
+      if (error) {
+        if (isTableNotFoundError(error)) {
+          return res.status(404).json({ errorType: "TABLE_NOT_FOUND", table: "companies" });
+        }
+        throw error;
+      }
+
+      const mapped = (data || []).map(c => ({
+        id: c.id,
+        name: c.name,
+        vatNumber: c.vat_number || "",
+        crNumber: c.cr_number || "",
+        vatRate: Number(c.vat_rate || 15),
+        welcomeMsg: c.welcome_msg || "",
+        subscriptionPlan: c.subscription_plan || "free",
+        subscriptionExpiry: c.subscription_expiry || "",
+        maxProductsLimit: Number(c.max_products_limit || 5)
+      }));
+
+      res.json({ success: true, companies: mapped });
+    } catch (err: any) {
+      console.error("Fetch Companies Error:", err);
+      res.status(500).json({ error: err.message || "Failed to fetch companies" });
+    }
+  });
+
+  // Sync / Upsert companies to Supabase
+  app.post("/api/supabase/sync-companies", async (req, res) => {
+    if (!supabase) {
+      return res.status(503).json({ error: "Supabase integration is not configured." });
+    }
+    try {
+      const { companies } = req.body;
+      if (!Array.isArray(companies)) {
+        return res.status(400).json({ error: "Invalid companies list format." });
+      }
+
+      const dbCompanies = companies.map(c => ({
+        id: c.id,
+        name: c.name,
+        vat_number: c.vatNumber,
+        cr_number: c.crNumber,
+        vat_rate: c.vatRate,
+        welcome_msg: c.welcomeMsg,
+        subscription_plan: c.subscriptionPlan,
+        subscription_expiry: c.subscriptionExpiry,
+        max_products_limit: c.maxProductsLimit
+      }));
+
+      const { error } = await supabase
+        .from("companies")
+        .upsert(dbCompanies);
+
+      if (error) {
+        if (isTableNotFoundError(error)) {
+          return res.status(404).json({ errorType: "TABLE_NOT_FOUND", table: "companies" });
+        }
+        throw error;
+      }
+
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error("Sync Companies Error:", err);
+      res.status(500).json({ error: err.message || "Failed to sync companies" });
+    }
+  });
+
+  // Fetch products for a specific company
+  app.get("/api/supabase/products", async (req, res) => {
+    if (!supabase) {
+      return res.status(503).json({ error: "Supabase integration is not configured." });
+    }
+    const { companyId } = req.query;
+    if (!companyId || typeof companyId !== "string") {
+      return res.status(400).json({ error: "companyId query parameter is required." });
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from("products")
+        .select("*")
+        .eq("company_id", companyId);
+
+      if (error) {
+        if (isTableNotFoundError(error)) {
+          return res.status(404).json({ errorType: "TABLE_NOT_FOUND", table: "products" });
+        }
+        throw error;
+      }
+
+      const mapped = (data || []).map(p => ({
+        id: p.id,
+        name: p.name,
+        price: Number(p.price),
+        costPrice: Number(p.cost_price || 0),
+        barcode: p.barcode || "",
+        category: p.category || "",
+        stock: Number(p.stock || 0),
+        isUnavailable: p.is_unavailable || false
+      }));
+
+      res.json({ success: true, products: mapped });
+    } catch (err: any) {
+      console.error("Fetch Products Error:", err);
+      res.status(500).json({ error: err.message || "Failed to fetch products" });
+    }
+  });
+
+  // Sync / Upsert products for a specific company
+  app.post("/api/supabase/sync-products", async (req, res) => {
+    if (!supabase) {
+      return res.status(503).json({ error: "Supabase integration is not configured." });
+    }
+    const { products, companyId } = req.body;
+    if (!companyId) {
+      return res.status(400).json({ error: "companyId is required." });
+    }
+    if (!Array.isArray(products)) {
+      return res.status(400).json({ error: "Invalid products array format." });
+    }
+
+    try {
+      const dbProducts = products.map(p => ({
+        id: p.id,
+        company_id: companyId,
+        name: p.name,
+        price: p.price,
+        cost_price: p.costPrice || 0,
+        barcode: p.barcode || "",
+        category: p.category || "",
+        stock: p.stock || 0,
+        is_unavailable: p.isUnavailable || false
+      }));
+
+      // In order to perform a clean sync, we can delete products that are no longer present
+      // or simply upsert what is sent. Since POS state in frontend is authoritative,
+      // we can do a standard delete + upsert transaction, or simply upsert. Let's do delete not in list + upsert.
+      const productIds = dbProducts.map(p => p.id);
+      
+      // Delete products belonging to this company that are no longer in this list
+      if (productIds.length > 0) {
+        await supabase
+          .from("products")
+          .delete()
+          .eq("company_id", companyId)
+          .not("id", "in", `(${productIds.join(",")})`);
+      } else {
+        await supabase
+          .from("products")
+          .delete()
+          .eq("company_id", companyId);
+      }
+
+      if (dbProducts.length > 0) {
+        const { error } = await supabase
+          .from("products")
+          .upsert(dbProducts);
+
+        if (error) {
+          if (isTableNotFoundError(error)) {
+            return res.status(404).json({ errorType: "TABLE_NOT_FOUND", table: "products" });
+          }
+          throw error;
+        }
+      }
+
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error("Sync Products Error:", err);
+      res.status(500).json({ error: err.message || "Failed to sync products" });
+    }
+  });
+
+  // Fetch orders for a specific company
+  app.get("/api/supabase/orders", async (req, res) => {
+    if (!supabase) {
+      return res.status(503).json({ error: "Supabase integration is not configured." });
+    }
+    const { companyId } = req.query;
+    if (!companyId || typeof companyId !== "string") {
+      return res.status(400).json({ error: "companyId query parameter is required." });
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from("orders")
+        .select("*")
+        .eq("company_id", companyId);
+
+      if (error) {
+        if (isTableNotFoundError(error)) {
+          return res.status(404).json({ errorType: "TABLE_NOT_FOUND", table: "orders" });
+        }
+        throw error;
+      }
+
+      const mapped = (data || []).map(o => ({
+        id: o.id,
+        customerName: o.customer_name || undefined,
+        items: typeof o.items === "string" ? JSON.parse(o.items) : o.items,
+        total: Number(o.total || 0),
+        vatAmount: Number(o.vat_amount || 0),
+        discount: Number(o.discount || 0),
+        paymentMethod: o.payment_method,
+        status: o.status,
+        createdAt: o.created_at
+      }));
+
+      res.json({ success: true, orders: mapped });
+    } catch (err: any) {
+      console.error("Fetch Orders Error:", err);
+      res.status(500).json({ error: err.message || "Failed to fetch orders" });
+    }
+  });
+
+  // Sync / Upsert orders for a specific company
+  app.post("/api/supabase/sync-orders", async (req, res) => {
+    if (!supabase) {
+      return res.status(503).json({ error: "Supabase integration is not configured." });
+    }
+    const { orders, companyId } = req.body;
+    if (!companyId) {
+      return res.status(400).json({ error: "companyId is required." });
+    }
+    if (!Array.isArray(orders)) {
+      return res.status(400).json({ error: "Invalid orders array format." });
+    }
+
+    try {
+      const dbOrders = orders.map(o => ({
+        id: o.id,
+        company_id: companyId,
+        customer_name: o.customerName || null,
+        items: o.items, // JSONB supports direct objects/arrays
+        total: o.total,
+        vat_amount: o.vatAmount,
+        discount: o.discount,
+        payment_method: o.paymentMethod,
+        status: o.status,
+        created_at: o.createdAt
+      }));
+
+      if (dbOrders.length > 0) {
+        const { error } = await supabase
+          .from("orders")
+          .upsert(dbOrders);
+
+        if (error) {
+          if (isTableNotFoundError(error)) {
+            return res.status(404).json({ errorType: "TABLE_NOT_FOUND", table: "orders" });
+          }
+          throw error;
+        }
+      }
+
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error("Sync Orders Error:", err);
+      res.status(500).json({ error: err.message || "Failed to sync orders" });
     }
   });
 

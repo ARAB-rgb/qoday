@@ -24,7 +24,7 @@ export const LANGUAGES: LanguageConfig[] = [
 export const TRANSLATIONS: Record<string, Record<LanguageCode, string>> = {
   // App Header & Branding
   app_title: {
-    ar: 'بقالة البركة والخيرات',
+    ar: 'قيد - كاشير ونقاط بيع ذكية',
     hi: 'बरका और खैरात किराना स्टोर',
     bn: 'বারাকা ও খায়রাত মুদি দোকান',
     tl: 'Al Baraka Grocery Store',
@@ -87,7 +87,7 @@ export const TRANSLATIONS: Record<string, Record<LanguageCode, string>> = {
     ur: 'ٹوٹل (Total)'
   },
   app_subtitle: {
-    ar: 'نظام كاشير البقالة السريع والمبسط المتوافق مع هيئة الزكاة والضريبة والجمارك',
+    ar: 'نظام كاشير قيد (QAYD) المتكامل والسريع المتوافق مع هيئة الزكاة والضريبة والجمارك',
     hi: 'ज़कात और टैक्स अथॉरिटी के नियमों के अनुरूप तेज़ और आसान पीओएस सिस्टम',
     bn: 'যাকাত ও ট্যাক্স কর্তৃপক্ষের নিয়ম মেনে দ্রুত এবং সহজ পিওএস সিস্টেম',
     tl: 'Mabilis at madaling POS System na sumusunod sa regulasyon ng Zakat at Tax Authority',
