@@ -86,11 +86,11 @@ const INITIAL_DEVICES: HardwareDevice[] = [
 const INITIAL_COMPANIES: Company[] = [
   {
     id: 'comp-1',
-    name: 'بقالة البركة والخيرات',
+    name: 'مؤسسة قيد التجارية',
     vatNumber: '300055443300003',
     crNumber: '1010000000',
     vatRate: 15,
-    welcomeMsg: 'نشكركم لتسوقكم معنا في بقالة البركة والخيرات!',
+    welcomeMsg: 'نشكركم لتسوقكم معنا في مؤسسة قيد التجارية (QAYD)!',
     subscriptionPlan: 'premium',
     subscriptionExpiry: '2027-01-01',
     maxProductsLimit: 100
@@ -290,7 +290,7 @@ export default function App() {
 
   // Custom print settings states
   const [storeName, setStoreName] = useState<string>(() => {
-    return localStorage.getItem('pos_store_name') || 'بقالة البركة والخيرات';
+    return localStorage.getItem('pos_store_name') || 'مؤسسة قيد التجارية';
   });
   const [storeVat, setStoreVat] = useState<string>(() => {
     return localStorage.getItem('pos_store_vat') || '300055443300003';
@@ -2164,7 +2164,7 @@ export default function App() {
                   value={storeName}
                   onChange={(e) => setStoreName(e.target.value)}
                   className="w-full text-xs font-bold text-slate-800 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:bg-white focus:outline-none rounded-xl px-3.5 py-2.5 transition-all shadow-sm"
-                  placeholder="مثال: بقالة البركة والخيرات"
+                  placeholder="مثال: مؤسسة قيد التجارية"
                 />
                 <span className="text-[10px] text-slate-400 block">يظهر كعنوان رئيسي في أعلى الفاتورة وعند التصدير.</span>
               </div>
@@ -2277,7 +2277,7 @@ export default function App() {
               <div className="space-y-1">
                 <span className="text-sm font-bold text-indigo-950 block text-right">نظام كاشير آمن، مستقل، ومستعد أوفلاين كلياً!</span>
                 <p className="text-xs text-slate-600 leading-relaxed text-right">
-                  تم تصميم تطبيق بقالة البركة والخيرات ليعمل بشكل مستقل تماماً داخل المتصفح أو كبرنامج مثبت على حاسوبك الشخصي. جميع بيانات المخزون والمبيعات والفواتير والربحية محفوظة بشكل آمن ومحلي، مما يتيح لك الاستمرار بالعمل والبيع والطباعة حتى في حال انقطاع شبكة الإنترنت كلياً!
+                  تم تصميم تطبيق قيد (QAYD) ليعمل بشكل مستقل تماماً داخل المتصفح أو كبرنامج مثبت على حاسوبك الشخصي. جميع بيانات المخزون والمبيعات والفواتير والربحية محفوظة بشكل آمن ومحلي، مما يتيح لك الاستمرار بالعمل والبيع والطباعة حتى في حال انقطاع شبكة الإنترنت كلياً!
                 </p>
               </div>
             </div>
@@ -2290,7 +2290,7 @@ export default function App() {
                   <span className="text-xs font-bold text-indigo-700 uppercase tracking-wider block">الطريقة الأولى: التثبيت الفوري (PWA)</span>
                   <h4 className="text-sm font-bold text-slate-800">تثبيت كبرنامج مستقل على سطح المكتب</h4>
                   <p className="text-xs text-slate-500 leading-relaxed">
-                    يعتمد كاشير البركة تقنية الـ PWA لتثبيت النظام مباشرة كأيقونة على سطح المكتب للكمبيوتر دون الحاجة لأي ملفات تثبيت خارجية معقدة.
+                    يعتمد كاشير قيد تقنية الـ PWA لتثبيت النظام مباشرة كأيقونة على سطح المكتب للكمبيوتر دون الحاجة لأي ملفات تثبيت خارجية معقدة.
                   </p>
                   <ul className="text-[11px] text-slate-600 space-y-1 pr-4 list-disc font-medium text-right">
                     <li>متوافق مع متصفحات Chrome و Edge و Safari.</li>

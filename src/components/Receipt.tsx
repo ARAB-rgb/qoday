@@ -20,7 +20,7 @@ export default function Receipt({
   onClose,
   showActions = true,
   lang = 'ar',
-  storeName = 'بقالة البركة والخيرات',
+  storeName = 'مؤسسة قيد التجارية',
   storeVat = '300055443300003',
   welcomeMsg = 'نشكركم لتسوقكم معنا!',
   storeCr = '1010000000',
@@ -258,7 +258,7 @@ export default function Receipt({
           <div className="text-center mb-4">
             <h1 className="text-lg font-bold text-gray-900 tracking-tight">{storeName}</h1>
             {lang !== 'ar' && (
-              <h2 className="text-xs font-bold text-gray-600 mt-0.5">{storeName !== 'بقالة البركة والخيرات' ? '' : t('app_title', lang)}</h2>
+              <h2 className="text-xs font-bold text-gray-600 mt-0.5">{storeName !== 'مؤسسة قيد التجارية' ? '' : t('app_title', lang)}</h2>
             )}
             <p className="text-[10px] text-gray-500 font-medium mt-1">
               {getBilingualFlat('grocery_subtitle', 'للمواد الغذائية والاستهلاكية')}
