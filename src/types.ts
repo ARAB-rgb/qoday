@@ -25,6 +25,9 @@ export interface Company {
   subscriptionPlan: 'free' | 'basic' | 'premium' | 'enterprise';
   subscriptionExpiry: string;
   maxProductsLimit: number;
+  barcode?: string; // Company / Grocery Barcode Identifier (e.g., 6281010000010)
+  isActive?: boolean; // Toggled by Super Admin
+  supportRequested?: boolean; // Added for Super Admin / support entry workflow
 }
 
 export interface CartItem {
@@ -48,6 +51,8 @@ export interface Order {
   timestamp: number; // Epoch timestamp
   receivedAmount?: number; // Cash received
   changeAmount?: number; // Cash change returned
+  cashierId?: string; // ID of the cashier who processed the order
+  cashierName?: string; // Name of the cashier who processed the order
 }
 
 export interface Toast {
@@ -74,3 +79,27 @@ export interface HardwareDevice {
   lastActive?: number;
   details?: string;
 }
+
+export interface SuperAdminUser {
+  id: string;
+  name: string;
+  username: string;
+  role: 'admin' | 'cashier' | 'manager';
+  companyId: string;
+  companyName: string;
+  status: 'active' | 'suspended';
+  lastLogin: string;
+}
+
+export interface POSUser {
+  id: string;
+  name: string;
+  username: string;
+  password?: string;
+  role: 'admin' | 'cashier' | 'manager';
+  status: 'active' | 'suspended';
+  permissions: string[];
+  companyId?: string;
+}
+
+

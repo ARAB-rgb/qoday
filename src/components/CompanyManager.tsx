@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { 
   X, Building, Plus, Trash2, CreditCard, Sparkles, Check, 
-  Layers, Calendar, BadgePercent, Package, AlertCircle, ArrowLeft, ShieldAlert,
-  Database, RefreshCw, Copy, Cloud, CloudOff, CloudLightning
+  Layers, Calendar, BadgePercent, Package,  AlertCircle, ArrowLeft, ShieldAlert, AlertTriangle,
+  Database, RefreshCw, Copy, Cloud, CloudOff, CloudLightning, Barcode as BarcodeIcon, Tag, Printer
 } from 'lucide-react';
 import { Company } from '../types';
+import CompanyBarcodeModal from './CompanyBarcodeModal';
+import BarcodeRenderer from './BarcodeRenderer';
 
 interface CompanyManagerProps {
   companies: Company[];
@@ -13,6 +15,7 @@ interface CompanyManagerProps {
   onAddCompany: (company: Omit<Company, 'id'>) => void;
   onUpdateCompanyPlan: (companyId: string, plan: 'free' | 'basic' | 'premium' | 'enterprise', limit: number) => void;
   onDeleteCompany: (id: string) => void;
+  onUpdateCompanyBarcode?: (companyId: string, barcode: string) => void;
   onClose: () => void;
   currentProductCount: number; // For active company
   addToast: (msg: string, type: 'success' | 'error' | 'info' | 'warning') => void;
@@ -23,6 +26,8 @@ interface CompanyManagerProps {
   isSupabaseSyncEnabled: boolean;
   onToggleSupabaseSync: (enabled: boolean) => void;
   onManualSync: () => void;
+  lastSupabaseSyncTime?: number | null;
+  onResetTestSyncOverdue?: () => void;
 }
 
 const PLANS = [
@@ -104,6 +109,7 @@ export default function CompanyManager({
   onAddCompany,
   onUpdateCompanyPlan,
   onDeleteCompany,
+  onUpdateCompanyBarcode,
   onClose,
   currentProductCount,
   addToast,
@@ -113,17 +119,31 @@ export default function CompanyManager({
   supabaseErrorType,
   isSupabaseSyncEnabled,
   onToggleSupabaseSync,
-  onManualSync
+  onManualSync,
+  lastSupabaseSyncTime,
+  onResetTestSyncOverdue
 }: CompanyManagerProps) {
+  const isSuperAdmin = typeof window !== 'undefined' && !!localStorage.getItem('super_admin_token');
+  const visibleCompanies = isSuperAdmin ? companies : companies.filter(c => c.id === currentCompanyId);
+
   const [activeTab, setActiveTab] = useState<'list' | 'add' | 'plans' | 'supabase'>('list');
   const [selectedCompForPlan, setSelectedCompForPlan] = useState<string | null>(null);
+  const [selectedCompForBarcode, setSelectedCompForBarcode] = useState<Company | null>(null);
 
   // New Company form states
   const [newName, setNewName] = useState('');
   const [newVat, setNewVat] = useState('');
   const [newCr, setNewCr] = useState('');
+  const [newBarcode, setNewBarcode] = useState('');
   const [newWelcomeMsg, setNewWelcomeMsg] = useState('');
   const [newPlan, setNewPlan] = useState<'free' | 'basic' | 'premium' | 'enterprise'>('free');
+
+  const handleGenerateBarcode = () => {
+    const randomDigits = Math.floor(1000000000 + Math.random() * 9000000000).toString();
+    const code = `628${randomDigits}`;
+    setNewBarcode(code);
+    addToast(`تم توليد باركود تلقائي للمنشأة: #${code}`, 'info');
+  };
 
   const handleCreateCompany = (e: React.FormEvent) => {
     e.preventDefault();
@@ -139,6 +159,8 @@ export default function CompanyManager({
       enterprise: 9999
     };
 
+    const finalBarcode = newBarcode.trim() || `628${Math.floor(1000000000 + Math.random() * 9000000000)}`;
+
     onAddCompany({
       name: newName,
       vatNumber: newVat || '300000000000003',
@@ -147,13 +169,15 @@ export default function CompanyManager({
       welcomeMsg: newWelcomeMsg || `نشكركم لتسوقكم معنا في ${newName}!`,
       subscriptionPlan: newPlan,
       subscriptionExpiry: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 30 days
-      maxProductsLimit: planLimits[newPlan]
+      maxProductsLimit: planLimits[newPlan],
+      barcode: finalBarcode
     });
 
     // Reset fields
     setNewName('');
     setNewVat('');
     setNewCr('');
+    setNewBarcode('');
     setNewWelcomeMsg('');
     setNewPlan('free');
     setActiveTab('list');
@@ -211,18 +235,20 @@ export default function CompanyManager({
             }`}
           >
             <Building className="w-4 h-4" />
-            <span>قائمة الشركات المضافة ({companies.length})</span>
+            <span>قائمة الشركات المضافة ({visibleCompanies.length})</span>
           </button>
 
-          <button
-            onClick={() => setActiveTab('add')}
-            className={`py-3 px-2 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center gap-2 ${
-              activeTab === 'add' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-900'
-            }`}
-          >
-            <Plus className="w-4 h-4" />
-            <span>تسجيل شركة جديدة</span>
-          </button>
+          {isSuperAdmin && (
+            <button
+              onClick={() => setActiveTab('add')}
+              className={`py-3 px-2 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center gap-2 ${
+                activeTab === 'add' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              <Plus className="w-4 h-4" />
+              <span>تسجيل شركة جديدة</span>
+            </button>
+          )}
 
           <button
             onClick={() => { setActiveTab('supabase'); setSelectedCompForPlan(null); }}
@@ -257,7 +283,7 @@ export default function CompanyManager({
           {activeTab === 'list' && (
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {companies.map((comp) => {
+                {visibleCompanies.map((comp) => {
                   const pCount = getCompanyProductCount(comp.id);
                   const isCurrent = comp.id === currentCompanyId;
                   const isExpired = new Date(comp.subscriptionExpiry).getTime() < Date.now();
@@ -293,6 +319,28 @@ export default function CompanyManager({
                               الرقم الضريبي: {comp.vatNumber} • السجل: {comp.crNumber}
                             </p>
                           </div>
+                        </div>
+
+                        {/* Company Barcode Chip */}
+                        <div className="flex items-center justify-between px-3 py-2 bg-indigo-50/70 border border-indigo-100 rounded-xl">
+                          <div className="flex items-center gap-2">
+                            <BarcodeIcon className="w-4 h-4 text-indigo-600 shrink-0" />
+                            <div className="text-right">
+                              <span className="text-[9.5px] font-bold text-slate-500 block">باركود المنشأة / البقالة:</span>
+                              <span className="font-mono text-xs font-black text-indigo-950 tracking-wider">
+                                {comp.barcode || `62810100000${comp.id.replace(/\D/g, '') || '1'}`}
+                              </span>
+                            </div>
+                          </div>
+                          
+                          <button
+                            type="button"
+                            onClick={() => setSelectedCompForBarcode(comp)}
+                            className="px-2.5 py-1 bg-white hover:bg-indigo-600 text-indigo-600 hover:text-white border border-indigo-200 rounded-lg text-[10px] font-black transition-all cursor-pointer shadow-xs flex items-center gap-1"
+                          >
+                            <Printer className="w-3 h-3" />
+                            <span>ملصق الباركود 🏷️</span>
+                          </button>
                         </div>
 
                         {/* Subscription Info */}
@@ -356,18 +404,30 @@ export default function CompanyManager({
                           </div>
                         )}
 
-                        <button
-                          onClick={() => {
-                            setSelectedCompForPlan(comp.id);
-                            setActiveTab('plans');
-                          }}
-                          className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1"
-                        >
-                          <Sparkles className="w-3.5 h-3.5 text-amber-500 animate-pulse" />
-                          <span>تعديل الباقة</span>
-                        </button>
+                        {isSuperAdmin ? (
+                          <button
+                            onClick={() => {
+                              setSelectedCompForPlan(comp.id);
+                              setActiveTab('plans');
+                            }}
+                            className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1"
+                          >
+                            <Sparkles className="w-3.5 h-3.5 text-amber-500 animate-pulse" />
+                            <span>تعديل الباقة</span>
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              setSelectedCompForPlan(comp.id);
+                              setActiveTab('plans');
+                            }}
+                            className="px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1"
+                          >
+                            <span>عرض تفاصيل الباقة</span>
+                          </button>
+                        )}
 
-                        {companies.length > 1 && !isCurrent && (
+                        {isSuperAdmin && companies.length > 1 && !isCurrent && (
                           <button
                             onClick={() => {
                               if (confirm(`هل أنت متأكد من حذف شركة "${comp.name}"؟ سيتم حذف جميع منتجاتها ومبيعاتها نهائياً ولا يمكن الاسترجاع.`)) {
@@ -467,6 +527,31 @@ export default function CompanyManager({
                   />
                   <span className="text-[10px] text-slate-400 block">رقم السجل المعتمد بوزارة التجارة.</span>
                 </div>
+              </div>
+
+              {/* Barcode Input for New Company */}
+              <div className="space-y-1.5 text-right">
+                <div className="flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={handleGenerateBarcode}
+                    className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 transition-colors cursor-pointer"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    <span>توليد باركود تلقائي ⚡</span>
+                  </button>
+                  <label className="text-xs font-bold text-slate-700 block">باركود المنشأة / رمز البقالة التجاري:</label>
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newBarcode}
+                    onChange={(e) => setNewBarcode(e.target.value)}
+                    className="flex-1 font-mono text-xs font-bold text-slate-800 bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:bg-white focus:outline-none rounded-xl px-3.5 py-2.5 transition-all shadow-sm"
+                    placeholder="مثال: 6281010000055 (أو اتركه فارغاً للتوليد التلقائي)"
+                  />
+                </div>
+                <span className="text-[10px] text-slate-400 block">رمز باركود فريد يتيح التعرف على المنشأة بمسحة واحدة عند الكاشير.</span>
               </div>
 
               {/* Welcoming Footer Message Input */}
@@ -574,19 +659,30 @@ export default function CompanyManager({
                             <span>باقة الشركة الحالية</span>
                           </div>
                         ) : (
-                          <button
-                            onClick={() => {
-                              triggerUpgrade(selectedCompForPlan, plan.id, plan.limit);
-                              addToast(`تم ترقية شركة "${companyObj?.name}" بنجاح إلى "${plan.name}"! تم زيادة السعة إلى ${plan.limit >= 9999 ? 'لامحدود' : plan.limit + ' منتج'}.`, 'success');
-                            }}
-                            className={`w-full text-center py-2 text-xs font-extrabold rounded-xl transition-all cursor-pointer shadow-sm active:scale-95 ${
-                              plan.popular 
-                                ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-amber-500/10' 
-                                : 'bg-slate-800 hover:bg-slate-900 text-white'
-                            }`}
-                          >
-                            تفعيل / ترقية الآن 💳
-                          </button>
+                          isSuperAdmin ? (
+                            <button
+                              onClick={() => {
+                                triggerUpgrade(selectedCompForPlan, plan.id, plan.limit);
+                                addToast(`تم ترقية شركة "${companyObj?.name}" بنجاح إلى "${plan.name}"! تم زيادة السعة إلى ${plan.limit >= 9999 ? 'لامحدود' : plan.limit + ' منتج'}.`, 'success');
+                              }}
+                              className={`w-full text-center py-2 text-xs font-extrabold rounded-xl transition-all cursor-pointer shadow-sm active:scale-95 ${
+                                plan.popular 
+                                  ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-amber-500/10' 
+                                  : 'bg-slate-800 hover:bg-slate-900 text-white'
+                              }`}
+                            >
+                              تفعيل / ترقية الآن 💳
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                alert('لترقية باقة اشتراكك، يرجى تقديم طلب ترقية إلى المشرف العام للنظام أو الاتصال بالدعم الفني لقيد QAYD 📞');
+                              }}
+                              className="w-full text-center py-2 text-xs font-extrabold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-500 border border-slate-200 cursor-pointer active:scale-95 transition-all"
+                            >
+                              طلب ترقية الباقة 🔒
+                            </button>
+                          )
                         )}
                       </div>
                     </div>
@@ -705,6 +801,48 @@ export default function CompanyManager({
                       </span>
                     )}
                   </div>
+                </div>
+
+                {/* Last Sync Timestamp & 7-Day Status */}
+                <div className="mt-3 p-3.5 bg-indigo-50/50 rounded-xl border border-indigo-100/80 flex flex-wrap items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-slate-700">آخر مزامنة سحابية ناجحة:</span>
+                    <span className="font-mono font-bold text-indigo-700">
+                      {lastSupabaseSyncTime 
+                        ? new Date(lastSupabaseSyncTime).toLocaleString(lang === 'ar' ? 'ar-SA' : 'en-US', {
+                            year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                          })
+                        : 'لم تتم المزامنة من قبل'
+                      }
+                    </span>
+                    {lastSupabaseSyncTime && (() => {
+                      const days = Math.floor((Date.now() - lastSupabaseSyncTime) / (1000 * 60 * 60 * 24));
+                      if (days >= 7) {
+                        return (
+                          <span className="px-2 py-0.5 bg-amber-500/20 text-amber-800 rounded-full font-bold text-[10px] border border-amber-500/30 flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3 text-amber-600" />
+                            <span>تجاوزت 7 أيام ({days} أيام)</span>
+                          </span>
+                        );
+                      }
+                      return (
+                        <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-full font-bold text-[10px] border border-emerald-200">
+                          {days === 0 ? 'اليوم' : `منذ ${days} أيام`}
+                        </span>
+                      );
+                    })()}
+                  </div>
+
+                  {onResetTestSyncOverdue && (
+                    <button
+                      onClick={onResetTestSyncOverdue}
+                      type="button"
+                      className="text-[11px] font-bold text-amber-700 hover:text-amber-900 bg-amber-100/70 hover:bg-amber-100 border border-amber-300/70 px-2.5 py-1 rounded-lg transition-all cursor-pointer"
+                      title="محاكاة مرور 8 أيام لإظهار تنبيه المزامنة بالأعلى للتجربة والتحقق"
+                    >
+                      محاكاة مرور 8 أيام (اختبار التنبيه) ⏱️
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -826,6 +964,22 @@ CREATE POLICY "Allow anon delete ord" ON orders FOR DELETE USING (true);`}
         </div>
 
       </div>
+
+      {/* Company Barcode Sticker & Manager Modal */}
+      {selectedCompForBarcode && (
+        <CompanyBarcodeModal
+          company={selectedCompForBarcode}
+          onClose={() => setSelectedCompForBarcode(null)}
+          onUpdateBarcode={(companyId, newBarcode) => {
+            if (onUpdateCompanyBarcode) {
+              onUpdateCompanyBarcode(companyId, newBarcode);
+            }
+            // Update local selection
+            setSelectedCompForBarcode(prev => prev ? { ...prev, barcode: newBarcode } : null);
+          }}
+          addToast={addToast}
+        />
+      )}
     </div>
   );
 }

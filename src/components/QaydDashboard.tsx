@@ -162,6 +162,9 @@ export default function QaydDashboard({
   addToast
 }: QaydDashboardProps) {
   
+  const isSuperAdmin = typeof window !== 'undefined' && !!localStorage.getItem('super_admin_token');
+  const visibleCompanies = isSuperAdmin ? companies : companies.filter(c => c.id === currentCompanyId);
+
   // Active Module Tab
   const [activeTab, setActiveTab] = useState<string>('companies');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -284,38 +287,119 @@ export default function QaydDashboard({
     }
   });
 
-  // Keep state synced with LocalStorage
+  // Sync state loaded from current company id
   useEffect(() => {
-    localStorage.setItem('pos_erp_users', JSON.stringify(erpUsers));
-  }, [erpUsers]);
+    if (!currentCompanyId) return;
+
+    // Helper to get with fallback
+    const getSaved = (key: string, fallback: any) => {
+      try {
+        const saved = localStorage.getItem(key);
+        return saved ? JSON.parse(saved) : fallback;
+      } catch (e) {
+        return fallback;
+      }
+    };
+
+    setErpUsers(getSaved(`pos_erp_users_${currentCompanyId}`, [
+      { id: 'usr-1', name: 'أحمد القحطاني', username: 'ahmed_manager', role: 'admin', branch: 'الفرع الرئيسي - الرياض', status: 'active' },
+      { id: 'usr-2', name: 'سارة الدوسري', username: 'sara_cashier', role: 'cashier', branch: 'الفرع الرئيسي - الرياض', status: 'active' },
+      { id: 'usr-3', name: 'خالد اليوسف', username: 'khaled_accountant', role: 'accountant', branch: 'فرع جدة - شارع فلسطين', status: 'active' }
+    ]));
+
+    setErpRoles(getSaved(`pos_erp_roles_${currentCompanyId}`, [
+      { id: 'role-admin', name: 'Administrator', arabicName: 'مدير النظام الكامل', permissions: ['sales', 'inventory', 'reports', 'settings', 'users'] },
+      { id: 'role-cashier', name: 'Cashier', arabicName: 'كاشير نقطة بيع', permissions: ['sales'] },
+      { id: 'role-accountant', name: 'Accountant', arabicName: 'المحاسب المالي', permissions: ['reports', 'accounting', 'expenses'] },
+      { id: 'role-stock', name: 'Stock Keeper', arabicName: 'أمين المستودع والمخازن', permissions: ['inventory'] }
+    ]));
+
+    setErpBranches(getSaved(`pos_erp_branches_${currentCompanyId}`, [
+      { id: 'br-1', name: 'الفرع الرئيسي - الرياض', city: 'الرياض', phone: '0112223344', status: 'active' },
+      { id: 'br-2', name: 'فرع جدة - شارع فلسطين', city: 'جدة', phone: '0125556677', status: 'active' },
+      { id: 'br-3', name: 'فرع الدمام - الكورنيش', city: 'الدمام', phone: '0138889900', status: 'inactive' }
+    ]));
+
+    setErpSuppliers(getSaved(`pos_erp_suppliers_${currentCompanyId}`, [
+      { id: 'sup-1', name: 'شركة المراعي للألبان', contactPerson: 'عبد الله السديري', phone: '0501112222', category: 'الألبان والمبردات', balance: 4500 },
+      { id: 'sup-2', name: 'الشركة الوطنية للتوزيع (حلواني)', contactPerson: 'سعيد العلي', phone: '0502223333', category: 'المواد الغذائية والحلويات', balance: 1200 },
+      { id: 'sup-3', name: 'مؤسسة الرياض التجارية للمعلبات', contactPerson: 'سلمان الحربي', phone: '0504445555', category: 'المعلبات والجاف', balance: 0 }
+    ]));
+
+    setErpCustomers(getSaved(`pos_erp_customers_${currentCompanyId}`, [
+      { id: 'cust-1', name: 'محمد العتيبي', phone: '0556677889', points: 340, balance: 120 },
+      { id: 'cust-2', name: 'فهد الدوسري', phone: '0544332211', points: 150, balance: 0 },
+      { id: 'cust-3', name: 'منى الشهراني', phone: '0566773344', points: 820, balance: -50 }
+    ]));
+
+    setErpExpenses(getSaved(`pos_erp_expenses_${currentCompanyId}`, [
+      { id: 'exp-1', title: 'إيجار الفرع الشهري', category: 'إيجارات', amount: 8000, date: '2026-07-01' },
+      { id: 'exp-2', title: 'فاتورة الكهرباء والماء', category: 'مرافق عامة', amount: 1450, date: '2026-07-05' },
+      { id: 'exp-3', title: 'رواتب موظفين الوردية الصباحية', category: 'رواتب وأجور', amount: 12000, date: '2026-07-02' },
+      { id: 'exp-4', title: 'شراء ورق طابعات وصيانة كاشير', category: 'صيانة ومكتبية', amount: 350, date: '2026-07-08' }
+    ]));
+
+    setErpSafes(getSaved(`pos_erp_safes_${currentCompanyId}`, [
+      { id: 'safe-1', name: 'الخزينة المركزية للمتجر (Safe)', balance: 85000, type: 'safe', transactions: [] },
+      { id: 'safe-2', name: 'درج كاشير نقطة البيع 1', balance: 3450, type: 'cash_drawer', transactions: [] },
+      { id: 'safe-3', name: 'درج كاشير نقطة البيع 2', balance: 1200, type: 'cash_drawer', transactions: [] }
+    ]));
+
+    setErpActivityLogs(getSaved(`pos_erp_activity_logs_${currentCompanyId}`, [
+      { id: 'log-1', user: 'أحمد القحطاني', action: 'فتح جلسة بيع جديدة للمؤسسة والبدء بالعمل', timestamp: Date.now() - 3600000 * 4 },
+      { id: 'log-2', user: 'سارة الدوسري', action: 'تغيير إعدادات طابعة الإيصالات الذكية', timestamp: Date.now() - 3600000 * 2 },
+      { id: 'log-3', user: 'نظام قيد الآلي', action: 'توليد قيود تسوية المحاسبة الضريبية للربع الحالي', timestamp: Date.now() - 1800000 }
+    ]));
+  }, [currentCompanyId]);
+
+  // Keep state synced with LocalStorage under the active company ID suffix
+  useEffect(() => {
+    if (currentCompanyId) {
+      localStorage.setItem(`pos_erp_users_${currentCompanyId}`, JSON.stringify(erpUsers));
+    }
+  }, [erpUsers, currentCompanyId]);
 
   useEffect(() => {
-    localStorage.setItem('pos_erp_roles', JSON.stringify(erpRoles));
-  }, [erpRoles]);
+    if (currentCompanyId) {
+      localStorage.setItem(`pos_erp_roles_${currentCompanyId}`, JSON.stringify(erpRoles));
+    }
+  }, [erpRoles, currentCompanyId]);
 
   useEffect(() => {
-    localStorage.setItem('pos_erp_branches', JSON.stringify(erpBranches));
-  }, [erpBranches]);
+    if (currentCompanyId) {
+      localStorage.setItem(`pos_erp_branches_${currentCompanyId}`, JSON.stringify(erpBranches));
+    }
+  }, [erpBranches, currentCompanyId]);
 
   useEffect(() => {
-    localStorage.setItem('pos_erp_suppliers', JSON.stringify(erpSuppliers));
-  }, [erpSuppliers]);
+    if (currentCompanyId) {
+      localStorage.setItem(`pos_erp_suppliers_${currentCompanyId}`, JSON.stringify(erpSuppliers));
+    }
+  }, [erpSuppliers, currentCompanyId]);
 
   useEffect(() => {
-    localStorage.setItem('pos_erp_customers', JSON.stringify(erpCustomers));
-  }, [erpCustomers]);
+    if (currentCompanyId) {
+      localStorage.setItem(`pos_erp_customers_${currentCompanyId}`, JSON.stringify(erpCustomers));
+    }
+  }, [erpCustomers, currentCompanyId]);
 
   useEffect(() => {
-    localStorage.setItem('pos_erp_expenses', JSON.stringify(erpExpenses));
-  }, [erpExpenses]);
+    if (currentCompanyId) {
+      localStorage.setItem(`pos_erp_expenses_${currentCompanyId}`, JSON.stringify(erpExpenses));
+    }
+  }, [erpExpenses, currentCompanyId]);
 
   useEffect(() => {
-    localStorage.setItem('pos_erp_safes', JSON.stringify(erpSafes));
-  }, [erpSafes]);
+    if (currentCompanyId) {
+      localStorage.setItem(`pos_erp_safes_${currentCompanyId}`, JSON.stringify(erpSafes));
+    }
+  }, [erpSafes, currentCompanyId]);
 
   useEffect(() => {
-    localStorage.setItem('pos_erp_activity_logs', JSON.stringify(erpActivityLogs));
-  }, [erpActivityLogs]);
+    if (currentCompanyId) {
+      localStorage.setItem(`pos_erp_activity_logs_${currentCompanyId}`, JSON.stringify(erpActivityLogs));
+    }
+  }, [erpActivityLogs, currentCompanyId]);
 
   // Generate Accounting entries dynamically whenever orders or expenses change
   useEffect(() => {
@@ -815,7 +899,7 @@ export default function QaydDashboard({
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    {companies.map((comp) => {
+                    {visibleCompanies.map((comp) => {
                       const isCurrent = comp.id === currentCompanyId;
                       return (
                         <div 

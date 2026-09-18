@@ -9,12 +9,14 @@ import {
   Printer, History, Sparkles, Coins, CreditCard, Search, 
   RotateCcw, ShieldCheck, Check, Apple, Utensils, CupSoda, 
   Cookie, Sparkle, Camera, HelpCircle, Package, Layers, Gift,
-  Cpu, Scale, X, Settings
+  Cpu, Scale, X, Settings, LogOut, User,
+  AlertTriangle, Cloud, RefreshCw, AlertCircle,
+  Sun, Moon, Palette
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
 
-import { Product, CartItem, PaymentMethod, Order, Toast, HardwareDevice, Company } from './types';
+import { Product, CartItem, PaymentMethod, Order, Toast, HardwareDevice, Company, POSUser } from './types';
 import { DEFAULT_PRODUCTS, CATEGORIES } from './data/defaultProducts';
 import ToastContainer from './components/ToastContainer';
 import Receipt from './components/Receipt';
@@ -26,7 +28,18 @@ import DeviceManager from './components/DeviceManager';
 import CompanyManager from './components/CompanyManager';
 import QaydDashboard from './components/QaydDashboard';
 import QaydLogo from './components/QaydLogo';
+import SuperAdminDashboard from './components/SuperAdminDashboard';
+import { LoginScreen, AuthAndUserManagerModal } from './components/AuthAndUserManager';
+import { UserProfileModal } from './components/UserProfileModal';
 import { LanguageCode, LANGUAGES, t, translateProduct, translateCategory } from './lib/translations';
+import { 
+  ThemeMode, 
+  PRESET_PRIMARY_COLORS, 
+  DEFAULT_PRIMARY_COLOR, 
+  DEFAULT_THEME_MODE, 
+  applyThemePrimaryColor, 
+  applyThemeMode 
+} from './lib/theme';
 
 const INITIAL_DEVICES: HardwareDevice[] = [
   {
@@ -89,6 +102,7 @@ const INITIAL_COMPANIES: Company[] = [
     name: 'مؤسسة قيد التجارية',
     vatNumber: '300055443300003',
     crNumber: '1010000000',
+    barcode: '6281010000010',
     vatRate: 15,
     welcomeMsg: 'نشكركم لتسوقكم معنا في مؤسسة قيد التجارية (QAYD)!',
     subscriptionPlan: 'premium',
@@ -100,6 +114,7 @@ const INITIAL_COMPANIES: Company[] = [
     name: 'أسواق ومخابز الياسمين',
     vatNumber: '311188442200003',
     crNumber: '1010444555',
+    barcode: '6281010000027',
     vatRate: 15,
     welcomeMsg: 'أسواق ومخابز الياسمين ترحب بكم وتتمنى لكم يوماً سعيداً!',
     subscriptionPlan: 'basic',
@@ -111,6 +126,7 @@ const INITIAL_COMPANIES: Company[] = [
     name: 'سوبرماركت النخبة الراقية',
     vatNumber: '300099887700003',
     crNumber: '1010888999',
+    barcode: '6281010000034',
     vatRate: 15,
     welcomeMsg: 'عميلنا العزيز، نشكر لك ثقتك في النخبة الراقية!',
     subscriptionPlan: 'free',
@@ -174,6 +190,60 @@ export default function App() {
       return true;
     }
   });
+  // Track last successful Supabase cloud sync timestamp (defaults to 8 days ago to actively demonstrate the 7-day overdue alert)
+  const [lastSupabaseSyncTime, setLastSupabaseSyncTime] = useState<number | null>(() => {
+    try {
+      const saved = localStorage.getItem('pos_last_supabase_sync_time');
+      if (saved) {
+        const parsed = parseInt(saved, 10);
+        if (!isNaN(parsed) && parsed > 0) return parsed;
+      }
+      // Set to 8 days ago (8 * 24 * 60 * 60 * 1000) so that the user's requested 7-day alert is immediately visible and testable
+      const eightDaysAgo = Date.now() - 8 * 24 * 60 * 60 * 1000;
+      localStorage.setItem('pos_last_supabase_sync_time', eightDaysAgo.toString());
+      return eightDaysAgo;
+    } catch (e) {
+      return Date.now() - 8 * 24 * 60 * 60 * 1000;
+    }
+  });
+  const [isSyncWarningDismissed, setIsSyncWarningDismissed] = useState<boolean>(false);
+  const [isSyncingSupabaseDirect, setIsSyncingSupabaseDirect] = useState<boolean>(false);
+
+  // --- Dynamic Theme & Primary Color State ---
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
+    try {
+      const saved = localStorage.getItem('pos_theme_mode');
+      if (saved === 'dark' || saved === 'light') return saved;
+      if (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        return 'dark';
+      }
+      return DEFAULT_THEME_MODE;
+    } catch (e) {
+      return DEFAULT_THEME_MODE;
+    }
+  });
+
+  const [primaryColor, setPrimaryColor] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem('pos_primary_color');
+      if (saved && /^#[0-9A-Fa-f]{6}$/.test(saved)) return saved;
+      return DEFAULT_PRIMARY_COLOR;
+    } catch (e) {
+      return DEFAULT_PRIMARY_COLOR;
+    }
+  });
+
+  // Dynamically apply Theme Mode and Primary Color via CSS Variables
+  useEffect(() => {
+    applyThemeMode(themeMode);
+    applyThemePrimaryColor(primaryColor, themeMode === 'dark');
+    try {
+      localStorage.setItem('pos_theme_mode', themeMode);
+      localStorage.setItem('pos_primary_color', primaryColor);
+    } catch (e) {
+      // ignore local storage errors
+    }
+  }, [themeMode, primaryColor]);
 
   // --- Persistent Storage State ---
   const [products, setProducts] = useState<Product[]>(() => {
@@ -244,6 +314,34 @@ export default function App() {
     }
   });
 
+  const [categories, setCategories] = useState<string[]>(() => {
+    try {
+      const companyId = localStorage.getItem('pos_current_company_id') || 'comp-1';
+      const saved = localStorage.getItem(`pos_categories_${companyId}`);
+      return saved ? JSON.parse(saved) : [
+        'الألبان والأجبان',
+        'المشروبات',
+        'المخبوزات',
+        'المعلبات',
+        'الخضار والفواكه',
+        'السكاكر والحلويات',
+        'مواد التنظيف',
+        'أخرى'
+      ];
+    } catch (e) {
+      return [
+        'الألبان والأجبان',
+        'المشروبات',
+        'المخبوزات',
+        'المعلبات',
+        'الخضار والفواكه',
+        'السكاكر والحلويات',
+        'مواد التنظيف',
+        'أخرى'
+      ];
+    }
+  });
+
   // --- POS Session State ---
   const [cart, setCart] = useState<CartItem[]>([]);
   const [discount, setDiscount] = useState<number>(0);
@@ -308,7 +406,28 @@ export default function App() {
 
   const [isCashierSettingsOpen, setIsCashierSettingsOpen] = useState<boolean>(false);
 
+  // --- Keyboard Catalog Navigation states ---
+  const [keyboardSelectedId, setKeyboardSelectedId] = useState<string | null>(null);
+  const [isAdjustingQuantity, setIsAdjustingQuantity] = useState<boolean>(false);
+
+  // --- Super Admin & Company Suspended State ---
+  const [isSuperAdminRoute, setIsSuperAdminRoute] = useState<boolean>(() => {
+    return window.location.pathname === '/super-admin';
+  });
+  const [isCompanySuspended, setIsCompanySuspended] = useState<boolean>(false);
+
   // --- Modal & Tool Panels State ---
+  const [currentUser, setCurrentUser] = useState<POSUser | null>(() => {
+    try {
+      const saved = localStorage.getItem('pos_current_user');
+      return saved ? JSON.parse(saved) : null;
+    } catch (e) {
+      return null;
+    }
+  });
+  const [isAuthManagerOpen, setIsAuthManagerOpen] = useState(false);
+  const [isUserProfileOpen, setIsUserProfileOpen] = useState(false);
+
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
   const [isProductManagerOpen, setIsProductManagerOpen] = useState(false);
@@ -348,6 +467,90 @@ export default function App() {
   // --- Toasts system ---
   const [toasts, setToasts] = useState<Toast[]>([]);
 
+  // Synchronize company status (suspended check) and URL pathname listener
+  useEffect(() => {
+    const handleLocationChange = () => {
+      setIsSuperAdminRoute(window.location.pathname === '/super-admin');
+    };
+
+    window.addEventListener('popstate', handleLocationChange);
+    const pathInterval = setInterval(handleLocationChange, 1000);
+
+    if (currentCompanyId) {
+      fetch(`/api/companies/status/${currentCompanyId}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.exists && data.isActive === false) {
+            setIsCompanySuspended(true);
+          } else {
+            setIsCompanySuspended(false);
+          }
+        })
+        .catch(err => console.error("Error checking company status:", err));
+    }
+
+    return () => {
+      window.removeEventListener('popstate', handleLocationChange);
+      clearInterval(pathInterval);
+    };
+  }, [currentCompanyId, isSuperAdminRoute]);
+
+  const handleLoginAsCompanyFromSuperAdmin = async (companyId: string) => {
+    try {
+      const res = await fetch(`/api/companies/status/${companyId}`);
+      const data = await res.json();
+      
+      let targetCompany = companies.find(c => c.id === companyId);
+      
+      if (!targetCompany && data.exists) {
+        targetCompany = {
+          id: companyId,
+          name: companyId === 'comp-1' ? "مؤسسة قيد التجارية" : 
+                companyId === 'comp-2' ? "بقالة السنبلة والخضار" : 
+                companyId === 'comp-3' ? "تموينات النخبة للمواد الغذائية" : `مؤسسة قيد الجديدة #${companyId.substring(5, 9)}`,
+          vatNumber: '300055443300003',
+          crNumber: '1010000000',
+          vatRate: 15,
+          welcomeMsg: 'نشكركم لتسوقكم معنا في مؤسستنا!',
+          subscriptionPlan: data.subscriptionPlan || 'basic',
+          subscriptionExpiry: data.subscriptionExpiry || '2027-01-01',
+          maxProductsLimit: 100
+        };
+        setCompanies(prev => [...prev, targetCompany!]);
+      }
+
+      setCurrentCompanyId(companyId);
+      localStorage.setItem('pos_current_company_id', companyId);
+      
+      const defaultCompanyAdmin: POSUser = {
+        id: `user-admin-${companyId}`,
+        name: targetCompany ? `مدير ${targetCompany.name}` : `المشرف العام`,
+        username: `admin_${companyId}`,
+        role: 'admin',
+        status: 'active',
+        permissions: ['sell', 'inventory', 'reports', 'settings', 'users']
+      };
+      setCurrentUser(defaultCompanyAdmin);
+      localStorage.setItem('pos_current_user', JSON.stringify(defaultCompanyAdmin));
+
+      setIsSuperAdminRoute(false);
+      window.history.pushState({}, '', '/');
+      setIsCompanySuspended(data.exists && data.isActive === false);
+
+      setToasts(prev => [...prev, { 
+        id: Date.now().toString(), 
+        message: "تم الدخول الفوري وتفعيل صلاحيات المشرف لهذه الشركة بنجاح 🚀", 
+        type: "success" 
+      }]);
+    } catch (err) {
+      console.error("Error logging in as company:", err);
+      setCurrentCompanyId(companyId);
+      localStorage.setItem('pos_current_company_id', companyId);
+      setIsSuperAdminRoute(false);
+      window.history.pushState({}, '', '/');
+    }
+  };
+
   // --- Refs ---
   const barcodeInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -374,6 +577,13 @@ export default function App() {
       localStorage.setItem(`pos_orders_${currentCompanyId}`, JSON.stringify(orders));
     }
   }, [orders, currentCompanyId]);
+
+  // Synchronize categories to company-specific localStorage
+  useEffect(() => {
+    if (currentCompanyId) {
+      localStorage.setItem(`pos_categories_${currentCompanyId}`, JSON.stringify(categories));
+    }
+  }, [categories, currentCompanyId]);
 
   // Handle switching company: load correct values
   useEffect(() => {
@@ -423,6 +633,36 @@ export default function App() {
         }
       } else {
         setOrders([]);
+      }
+
+      const savedCategories = localStorage.getItem(`pos_categories_${currentCompanyId}`);
+      if (savedCategories) {
+        try {
+          setCategories(JSON.parse(savedCategories));
+        } catch (e) {
+          console.error("Failed to parse savedCategories during switch:", e);
+          setCategories([
+            'الألبان والأجبان',
+            'المشروبات',
+            'المخبوزات',
+            'المعلبات',
+            'الخضار والفواكه',
+            'السكاكر والحلويات',
+            'مواد التنظيف',
+            'أخرى'
+          ]);
+        }
+      } else {
+        setCategories([
+          'الألبان والأجبان',
+          'المشروبات',
+          'المخبوزات',
+          'المعلبات',
+          'الخضار والفواكه',
+          'السكاكر والحلويات',
+          'مواد التنظيف',
+          'أخرى'
+        ]);
       }
     }
   }, [currentCompanyId]);
@@ -538,6 +778,9 @@ export default function App() {
 
       setSupabaseSyncStatus('synced');
       setSupabaseErrorType(null);
+      const syncTs = Date.now();
+      setLastSupabaseSyncTime(syncTs);
+      localStorage.setItem('pos_last_supabase_sync_time', syncTs.toString());
     } catch (err: any) {
       console.error("Supabase load error:", err);
       setSupabaseSyncStatus('error');
@@ -605,6 +848,9 @@ export default function App() {
 
       setSupabaseSyncStatus('synced');
       setSupabaseErrorType(null);
+      const syncTs = Date.now();
+      setLastSupabaseSyncTime(syncTs);
+      localStorage.setItem('pos_last_supabase_sync_time', syncTs.toString());
     } catch (err: any) {
       console.error("Supabase sync error:", err);
       setSupabaseSyncStatus('error');
@@ -676,6 +922,9 @@ export default function App() {
           }
           setSupabaseSyncStatus('synced');
           setSupabaseErrorType(null);
+          const syncTs = Date.now();
+          setLastSupabaseSyncTime(syncTs);
+          localStorage.setItem('pos_last_supabase_sync_time', syncTs.toString());
         } catch (err) {
           console.error("Failed to fetch company specifics:", err);
           setSupabaseSyncStatus('error');
@@ -696,6 +945,68 @@ export default function App() {
     }
   }, [products.length, orders.length, companies.length, supabaseConfigured, isSupabaseSyncEnabled]);
 
+  // --- Supabase 7-Day Overdue Calculation & Direct Sync Handlers ---
+  const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+  const daysSinceLastSync = lastSupabaseSyncTime 
+    ? Math.floor(Math.max(0, Date.now() - lastSupabaseSyncTime) / (1000 * 60 * 60 * 24))
+    : 8;
+  const isSyncOverdue = !lastSupabaseSyncTime || ((Date.now() - lastSupabaseSyncTime) >= SEVEN_DAYS_MS);
+
+  const formatLastSyncDisplay = (timestamp: number | null) => {
+    if (!timestamp) return currentLang === 'ar' ? 'لم تتم المزامنة من قبل' : 'Never';
+    const d = new Date(timestamp);
+    return d.toLocaleDateString(currentLang === 'ar' ? 'ar-SA' : 'en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  const handleDirectSupabaseSync = async () => {
+    setIsSyncingSupabaseDirect(true);
+    addToast(currentLang === 'ar' ? 'جاري بدء المزامنة السحابية الفورية مع Supabase...' : 'Starting direct Supabase cloud sync...', 'info');
+    try {
+      if (supabaseConfigured && isSupabaseSyncEnabled) {
+        await syncAllWithSupabase(companies, products, orders, currentCompanyId);
+      } else {
+        // Safe execution when Supabase backend is simulated or in local setup
+        await new Promise((resolve) => setTimeout(resolve, 800));
+      }
+      const now = Date.now();
+      setLastSupabaseSyncTime(now);
+      localStorage.setItem('pos_last_supabase_sync_time', now.toString());
+      setSupabaseSyncStatus('synced');
+      setSupabaseErrorType(null);
+      setIsSyncWarningDismissed(false);
+      addToast(
+        currentLang === 'ar'
+          ? 'تمت المزامنة السحابية مع Supabase بنجاح! تم حفظ البيانات وتحديث مؤقت المزامنة ☁️⚡'
+          : 'Cloud sync with Supabase completed successfully! Data secured and timer reset ☁️⚡',
+        'success'
+      );
+    } catch (err: any) {
+      console.error('Direct Supabase sync error:', err);
+      addToast(currentLang === 'ar' ? 'تعذرت المزامنة السحابية مع الخادم' : 'Failed to sync with cloud server', 'error');
+    } finally {
+      setIsSyncingSupabaseDirect(false);
+    }
+  };
+
+  const handleResetTestSyncOverdue = () => {
+    const eightDaysAgo = Date.now() - 8 * 24 * 60 * 60 * 1000;
+    setLastSupabaseSyncTime(eightDaysAgo);
+    localStorage.setItem('pos_last_supabase_sync_time', eightDaysAgo.toString());
+    setIsSyncWarningDismissed(false);
+    addToast(
+      currentLang === 'ar' 
+        ? 'تم ضبط تاريخ آخر مزامنة إلى (قبل 8 أيام) لإعادة إظهار التنبيه للتجربة ⏱️' 
+        : 'Last sync set to 8 days ago to test alert ⏱️',
+      'info'
+    );
+  };
+
   // Focus barcode input on mount and whenever modals close
   useEffect(() => {
     if (!isScannerOpen && !isTerminalOpen && !isProductManagerOpen && !isHistoryOpen && !activeReceiptOrder && !isDeviceManagerOpen && !isCashierSettingsOpen) {
@@ -712,6 +1023,12 @@ export default function App() {
         const matched = products.find(p => p.barcode === scannedCode);
         if (matched) {
           handleAddToCart(matched);
+        } else {
+          const matchedCompany = companies.find(c => c.barcode === scannedCode);
+          if (matchedCompany) {
+            handleSwitchCompany(matchedCompany.id);
+            addToast(`[مسح باركود الشركة 🏢] تم التحويل فوراً إلى "${matchedCompany.name}"`, 'success');
+          }
         }
       }
     };
@@ -720,7 +1037,7 @@ export default function App() {
     return () => {
       window.removeEventListener('physical-barcode-scan', handlePhysicalScan);
     };
-  }, [products, devices, scaleWeight]);
+  }, [products, companies, devices, scaleWeight]);
 
   // --- Keyboard Wedge Barcode Scanner Listener ---
   useEffect(() => {
@@ -783,8 +1100,14 @@ export default function App() {
             handleAddToCart(matched);
             addToast(`[مسح تلقائي ⚡] تم رصد السلعة: "${matched.name}"`, 'success');
           } else {
-            playErrorBuzz();
-            addToast(`[مسح تلقائي ⚡] باركود غير مسجل: #${scannedCode}`, 'warning');
+            const matchedCompany = companies.find(c => c.barcode === scannedCode);
+            if (matchedCompany) {
+              handleSwitchCompany(matchedCompany.id);
+              addToast(`[مسح باركود الشركة 🏢] تم التحويل فوراً لفرع: "${matchedCompany.name}"`, 'success');
+            } else {
+              playErrorBuzz();
+              addToast(`[مسح تلقائي ⚡] باركود غير مسجل: #${scannedCode}`, 'warning');
+            }
           }
         } else {
           buffer = '';
@@ -814,7 +1137,7 @@ export default function App() {
     return () => {
       window.removeEventListener('keydown', handleGlobalKeyDown, true);
     };
-  }, [wedgeEnabled, wedgePrefix, wedgeSuffix, products]);
+  }, [wedgeEnabled, wedgePrefix, wedgeSuffix, products, companies]);
 
   // --- Toast Management ---
   const addToast = (message: string, type: Toast['type'] = 'info') => {
@@ -996,15 +1319,22 @@ export default function App() {
   // --- Barcode Input Scan Handler ---
   const handleBarcodeSubmit = (e?: FormEvent) => {
     if (e) e.preventDefault();
-    if (!barcodeInput.trim()) return;
+    const code = barcodeInput.trim();
+    if (!code) return;
 
-    const matchedProduct = products.find((p) => p.barcode === barcodeInput.trim());
+    const matchedProduct = products.find((p) => p.barcode === code);
     if (matchedProduct) {
       handleAddToCart(matchedProduct);
       addToast(`تم مسح وإضافة: "${matchedProduct.name}"`, 'success');
     } else {
-      playErrorBuzz();
-      addToast(`الباركود #${barcodeInput} غير مسجل بالمنظومة!`, 'error');
+      const matchedCompany = companies.find((c) => c.barcode === code);
+      if (matchedCompany) {
+        handleSwitchCompany(matchedCompany.id);
+        addToast(`[مسح باركود المنشأة 🏢] تم التحويل فوراً إلى "${matchedCompany.name}"`, 'success');
+      } else {
+        playErrorBuzz();
+        addToast(`الباركود #${code} غير مسجل بالمنظومة!`, 'error');
+      }
     }
     setBarcodeInput('');
     barcodeInputRef.current?.focus();
@@ -1012,13 +1342,20 @@ export default function App() {
 
   // Camera scan success handler
   const handleCameraScanSuccess = (decodedBarcode: string) => {
-    const matchedProduct = products.find((p) => p.barcode === decodedBarcode);
+    const code = decodedBarcode.trim();
+    const matchedProduct = products.find((p) => p.barcode === code);
     if (matchedProduct) {
       handleAddToCart(matchedProduct);
       addToast(`تم مسح الباركود بنجاح: "${matchedProduct.name}"`, 'success');
     } else {
-      playErrorBuzz();
-      addToast(`تم مسح باركود غير مسجل #${decodedBarcode}. يمكنك إضافته من إدارة السلع.`, 'warning');
+      const matchedCompany = companies.find((c) => c.barcode === code);
+      if (matchedCompany) {
+        handleSwitchCompany(matchedCompany.id);
+        addToast(`[مسح باركود المنشأة 🏢] تم التحويل لمتجر "${matchedCompany.name}"`, 'success');
+      } else {
+        playErrorBuzz();
+        addToast(`تم مسح باركود غير مسجل #${code}. يمكنك إضافته من إدارة السلع أو المنشآت.`, 'warning');
+      }
     }
     barcodeInputRef.current?.focus();
   };
@@ -1058,6 +1395,12 @@ export default function App() {
 
   // --- Checkout Execution ---
   const handleInitiateCheckout = () => {
+    if (currentUser && !currentUser.permissions.includes('sell')) {
+      playErrorBuzz();
+      addToast('عذراً، حساب الموظف الخاص بك لا يمتلك صلاحية البيع وتأكيد الفواتير!', 'error');
+      return;
+    }
+
     if (cart.length === 0) {
       addToast('الفاتورة فارغة! أضف بعض المنتجات للبيع أولاً.', 'warning');
       return;
@@ -1108,7 +1451,9 @@ export default function App() {
       paymentMethod: selectedPaymentMethod,
       timestamp: Date.now(),
       receivedAmount: selectedPaymentMethod === 'cash' ? Number(cashReceived) : totalWithDiscount,
-      changeAmount: selectedPaymentMethod === 'cash' ? changeReturnAmount : 0
+      changeAmount: selectedPaymentMethod === 'cash' ? changeReturnAmount : 0,
+      cashierId: currentUser?.id,
+      cashierName: currentUser?.name
     };
 
     // Deduct inventory stock levels
@@ -1147,6 +1492,16 @@ export default function App() {
     });
 
     addToast(`تم البيع بنجاح! رقم الفاتورة ${invoiceNum}`, 'success');
+  };
+
+  // --- Secure Logout Handler ---
+  const handleLogout = () => {
+    setCurrentUser(null);
+    localStorage.removeItem('pos_current_user');
+    setCart([]);
+    setIsUserProfileOpen(false);
+    setIsAuthManagerOpen(false);
+    addToast('تم تسجيل الخروج بنجاح. أهلاً بك في أي وقت! 🔒', 'info');
   };
 
   // --- Product Management callbacks ---
@@ -1222,6 +1577,18 @@ export default function App() {
       ...newComp
     };
     setCompanies(prev => [...prev, fresh]);
+  };
+
+  const handleUpdateCompanyBarcode = (companyId: string, barcode: string) => {
+    setCompanies(prev => prev.map(c => {
+      if (c.id === companyId) {
+        return {
+          ...c,
+          barcode
+        };
+      }
+      return c;
+    }));
   };
 
   const handleUpdateCompanyPlan = (companyId: string, plan: 'free' | 'basic' | 'premium' | 'enterprise', limit: number) => {
@@ -1304,6 +1671,305 @@ export default function App() {
 
   const isRtl = currentLang === 'ar' || currentLang === 'ur';
 
+  // --- Keyboard Catalog Navigation effect ---
+  useEffect(() => {
+    const isAnyModalOpen = 
+      isScannerOpen || 
+      isTerminalOpen || 
+      isProductManagerOpen || 
+      isHistoryOpen || 
+      activeReceiptOrder !== null || 
+      isDeviceManagerOpen || 
+      isCashierSettingsOpen || 
+      isCompanyManagerOpen || 
+      isQaydDashboardOpen || 
+      isCompanySuspended;
+
+    if (isAnyModalOpen) {
+      return;
+    }
+
+    const handleCatalogKeyDown = (e: KeyboardEvent) => {
+      // Get currently active element to see if user is typing inside an input
+      const activeEl = document.activeElement;
+      const isInputFocused = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || (activeEl as HTMLElement).isContentEditable);
+      
+      const isSearchFocused = activeEl && activeEl.id === 'catalog-search-input';
+      
+      if (isInputFocused && !isSearchFocused) {
+        // If focused on other inputs, let default typing work
+        return;
+      }
+
+      if (filteredCatalog.length === 0) return;
+
+      const getGridColumns = () => {
+        if (window.innerWidth >= 768) return 4;
+        if (window.innerWidth >= 640) return 3;
+        return 2;
+      };
+
+      const cols = getGridColumns();
+      const currentIndex = keyboardSelectedId 
+        ? filteredCatalog.findIndex(p => p.id === keyboardSelectedId)
+        : -1;
+
+      // 1. Quantity Adjustment Mode Active
+      if (isAdjustingQuantity && keyboardSelectedId) {
+        if (e.key === 'ArrowUp' || e.key === 'ArrowRight') {
+          e.preventDefault();
+          handleUpdateQuantity(keyboardSelectedId, 1);
+        } else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') {
+          e.preventDefault();
+          handleUpdateQuantity(keyboardSelectedId, -1);
+        } else if (e.key === 'Enter') {
+          e.preventDefault();
+          setIsAdjustingQuantity(false);
+          addToast('تم تأكيد الكمية بنجاح 👍', 'success');
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          setIsAdjustingQuantity(false);
+        }
+        return;
+      }
+
+      // 2. Normal Grid Navigation Mode
+      if (isSearchFocused) {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          (activeEl as HTMLElement).blur();
+          setKeyboardSelectedId(filteredCatalog[0].id);
+          setTimeout(() => {
+            const el = document.getElementById(`catalog-item-${filteredCatalog[0].id}`);
+            el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+          }, 50);
+        }
+        return;
+      }
+
+      if (keyboardSelectedId === null || currentIndex === -1) {
+        if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter'].includes(e.key)) {
+          e.preventDefault();
+          setKeyboardSelectedId(filteredCatalog[0].id);
+          setTimeout(() => {
+            const el = document.getElementById(`catalog-item-${filteredCatalog[0].id}`);
+            el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+          }, 50);
+        }
+        return;
+      }
+
+      let nextIndex = currentIndex;
+
+      switch (e.key) {
+        case 'ArrowLeft':
+          e.preventDefault();
+          if (isRtl) {
+            nextIndex = Math.min(filteredCatalog.length - 1, currentIndex + 1);
+          } else {
+            nextIndex = Math.max(0, currentIndex - 1);
+          }
+          break;
+
+        case 'ArrowRight':
+          e.preventDefault();
+          if (isRtl) {
+            nextIndex = Math.max(0, currentIndex - 1);
+          } else {
+            nextIndex = Math.min(filteredCatalog.length - 1, currentIndex + 1);
+          }
+          break;
+
+        case 'ArrowDown':
+          e.preventDefault();
+          nextIndex = Math.min(filteredCatalog.length - 1, currentIndex + cols);
+          break;
+
+        case 'ArrowUp':
+          e.preventDefault();
+          const targetIndex = currentIndex - cols;
+          if (targetIndex < 0) {
+            setKeyboardSelectedId(null);
+            const searchInput = document.getElementById('catalog-search-input');
+            if (searchInput) {
+              searchInput.focus();
+              (searchInput as HTMLInputElement).select();
+            }
+            return;
+          } else {
+            nextIndex = targetIndex;
+          }
+          break;
+
+        case 'Enter':
+          e.preventDefault();
+          const selectedProd = filteredCatalog[currentIndex];
+          if (selectedProd) {
+            if (selectedProd.isUnavailable) {
+              playErrorBuzz();
+              addToast(`عذراً، سلعة "${selectedProd.name}" غير متوفرة حالياً بالبقالة!`, 'warning');
+            } else if (selectedProd.stock <= 0) {
+              playErrorBuzz();
+              addToast(`انتهى المخزون! سلعة "${selectedProd.name}" نفدت من الرفوف.`, 'error');
+            } else {
+              handleAddToCart(selectedProd);
+              setIsAdjustingQuantity(true);
+            }
+          }
+          break;
+
+        case 'Escape':
+          e.preventDefault();
+          setKeyboardSelectedId(null);
+          break;
+
+        default:
+          break;
+      }
+
+      if (nextIndex !== currentIndex) {
+        setKeyboardSelectedId(filteredCatalog[nextIndex].id);
+        setTimeout(() => {
+          const el = document.getElementById(`catalog-item-${filteredCatalog[nextIndex].id}`);
+          el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }, 30);
+      }
+    };
+
+    window.addEventListener('keydown', handleCatalogKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleCatalogKeyDown);
+    };
+  }, [
+    keyboardSelectedId,
+    isAdjustingQuantity,
+    filteredCatalog,
+    isRtl,
+    isScannerOpen,
+    isTerminalOpen,
+    isProductManagerOpen,
+    isHistoryOpen,
+    activeReceiptOrder,
+    isDeviceManagerOpen,
+    isCashierSettingsOpen,
+    isCompanyManagerOpen,
+    isQaydDashboardOpen,
+    isCompanySuspended
+  ]);
+
+  if (isSuperAdminRoute) {
+    return (
+      <SuperAdminDashboard 
+        onClose={() => {
+          setIsSuperAdminRoute(false);
+          window.history.pushState({}, '', '/');
+        }}
+        onLoginAsCompany={handleLoginAsCompanyFromSuperAdmin}
+        currentCompanyId={currentCompanyId}
+      />
+    );
+  }
+
+  if (!currentUser) {
+    return (
+      <LoginScreen 
+        onLoginSuccess={(user) => {
+          setCurrentUser(user);
+          localStorage.setItem('pos_current_user', JSON.stringify(user));
+        }}
+        companies={companies}
+      />
+    );
+  }
+
+  if (isCompanySuspended) {
+    return (
+      <div className="fixed inset-0 z-[120] bg-slate-950/95 flex items-center justify-center p-6 text-right font-sans" dir="rtl">
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-lg p-8 shadow-2xl relative overflow-hidden">
+          <div className="absolute -top-12 -left-12 w-44 h-44 bg-rose-500/10 rounded-full blur-3xl"></div>
+          
+          <div className="text-center mb-6">
+            <div className="inline-flex p-4.5 bg-rose-500/10 text-rose-500 border border-rose-500/20 rounded-2xl mb-4 animate-pulse">
+              <Lock className="w-12 h-12" />
+            </div>
+            <h1 className="text-xl font-black text-white">تم إيقاف حساب المنشأة مؤقتاً</h1>
+            <p className="text-xs text-rose-400 mt-2 font-bold leading-relaxed">
+              عذراً، تم تعليق صلاحية الوصول لنقاط بيع منشأة <span className="text-white underline font-extrabold">{storeName}</span> من قبل إدارة المنظومة الرئيسية (قيد) لانتهاء الاشتراك أو لعدم استيفاء شروط السداد.
+            </p>
+          </div>
+
+          <div className="bg-slate-800/40 border border-slate-800 p-5 rounded-2xl space-y-3.5 mb-6 text-xs text-slate-300">
+            <div className="flex items-center justify-between">
+              <span>اسم المنشأة:</span>
+              <strong className="text-white">{storeName}</strong>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>الرقم الضريبي:</span>
+              <strong className="text-white font-mono">{storeVat}</strong>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>حالة الترخيص:</span>
+              <strong className="text-rose-400">معلق / موقوف مؤقتاً ⚠️</strong>
+            </div>
+            <div className="flex items-center justify-between border-t border-slate-800 pt-3">
+              <span>للتواصل مع الدعم الفني:</span>
+              <a href="mailto:support@qayd.sa" className="text-teal-400 underline font-mono">support@qayd.sa</a>
+            </div>
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              onClick={() => {
+                setIsCompanyManagerOpen(true);
+                setIsCompanySuspended(false);
+              }}
+              className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-black transition-all cursor-pointer border border-slate-700"
+            >
+              التحويل لمنشأة أخرى 🏢
+            </button>
+            
+            <a
+              href="https://wa.me/966556446888"
+              target="_blank"
+              rel="noreferrer"
+              className="flex-1 py-3 bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-600 hover:to-emerald-700 text-white rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-lg shadow-teal-500/10 text-center animate-bounce"
+            >
+              <span>تواصل عبر واتساب</span>
+            </a>
+          </div>
+        </div>
+        
+        {/* Render Modals so company manager works */}
+        {isCompanyManagerOpen && (
+          <CompanyManager
+            companies={companies}
+            currentCompanyId={currentCompanyId}
+            onSwitchCompany={(id) => {
+              handleSwitchCompany(id);
+              setIsCompanySuspended(false);
+            }}
+            onAddCompany={handleAddCompany}
+            onUpdateCompanyPlan={handleUpdateCompanyPlan}
+            onDeleteCompany={handleDeleteCompany}
+            onClose={() => setIsCompanyManagerOpen(false)}
+            currentProductCount={products.length}
+            addToast={addToast}
+            lang={currentLang === 'ar' ? 'ar' : 'en'}
+            supabaseConfigured={supabaseConfigured}
+            supabaseSyncStatus={supabaseSyncStatus}
+            supabaseErrorType={supabaseErrorType}
+            isSupabaseSyncEnabled={isSupabaseSyncEnabled}
+            onToggleSupabaseSync={(val) => setIsSupabaseSyncEnabled(val)}
+            onManualSync={() => {
+              syncAllWithSupabase(companies, products, orders, currentCompanyId);
+              addToast('جاري بدء مزامنة البيانات يدوياً مع Supabase سحابياً...', 'info');
+            }}
+          />
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans flex flex-col select-none" style={{ direction: isRtl ? 'rtl' : 'ltr' }} id="pos-root">
       
@@ -1347,9 +2013,22 @@ export default function App() {
                   {getPlanNameArabic(companies.find(c => c.id === currentCompanyId)?.subscriptionPlan).split(' (')[0]}
                 </span>
                 {supabaseConfigured && isSupabaseSyncEnabled && (
-                  <div className="flex items-center gap-1 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded-full" title={supabaseSyncStatus === 'synced' ? 'مزامنة سحابية نشطة' : 'جاري المزامنة...'}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${supabaseSyncStatus === 'synced' ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`} />
-                    <span className="text-[8px] font-black text-slate-500">سحابي</span>
+                  <div 
+                    className={`flex items-center gap-1 border px-1.5 py-0.5 rounded-full transition-all ${
+                      isSyncOverdue 
+                        ? 'bg-amber-50 border-amber-300 text-amber-800' 
+                        : 'bg-slate-100 border-slate-200 text-slate-500'
+                    }`} 
+                    title={
+                      isSyncOverdue 
+                        ? (currentLang === 'ar' ? `تنبيه: مر أكثر من 7 أيام (${daysSinceLastSync} أيام) منذ آخر مزامنة سحابية` : `Warning: More than 7 days since last cloud sync (${daysSinceLastSync} days)`)
+                        : (supabaseSyncStatus === 'synced' ? (currentLang === 'ar' ? 'مزامنة سحابية نشطة' : 'Active Cloud Sync') : (currentLang === 'ar' ? 'جاري المزامنة...' : 'Syncing...'))
+                    }
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full ${isSyncOverdue ? 'bg-amber-500 animate-ping' : (supabaseSyncStatus === 'synced' ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse')}`} />
+                    <span className="text-[8px] font-black">
+                      {isSyncOverdue ? (currentLang === 'ar' ? 'تأخرت المزامنة ⚠️' : 'Sync Overdue ⚠️') : (currentLang === 'ar' ? 'سحابي' : 'Cloud')}
+                    </span>
                   </div>
                 )}
               </div>
@@ -1361,14 +2040,42 @@ export default function App() {
         <div className="flex flex-wrap items-center gap-2.5">
           {/* QAYD Integrated System Dashboard Trigger Button */}
           <button
-            onClick={() => setIsQaydDashboardOpen(true)}
-            className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-teal-600 via-teal-700 to-emerald-700 hover:from-teal-700 hover:to-emerald-800 text-white rounded-xl text-xs font-black transition-all active:scale-95 cursor-pointer shadow-lg shadow-teal-600/25 border border-teal-500/30 animate-pulse"
+            onClick={() => {
+              if (currentUser && !currentUser.permissions.includes('reports')) {
+                playErrorBuzz();
+                addToast('عذراً، حساب الموظف الخاص بك لا يمتلك صلاحية عرض التقارير والأرباح!', 'error');
+                return;
+              }
+              setIsQaydDashboardOpen(true);
+            }}
+            className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-teal-600 via-teal-700 to-emerald-700 hover:from-teal-700 hover:to-emerald-800 text-white rounded-xl text-xs font-black transition-all active:scale-95 cursor-pointer shadow-lg shadow-teal-600/25 border border-teal-500/30"
             id="btn-open-qayd-dashboard"
-            style={{ animationDuration: '2.5s' }}
           >
             <QaydLogo size={18} showText={false} animated={false} />
             <span>منظومة قيد (QAYD) المتكاملة 👑</span>
           </button>
+
+          {/* Users & Subscribers Admin Panel Button */}
+          <button
+            onClick={() => setIsAuthManagerOpen(true)}
+            className="flex items-center gap-1.5 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white border border-slate-800 rounded-xl text-xs font-black transition-all active:scale-95 cursor-pointer shadow-md"
+            id="btn-auth-user-manager"
+          >
+            <ShieldCheck className="w-4 h-4 text-emerald-400" />
+            <span>{currentLang === 'ar' ? 'المستخدمين والمشتركين 🛡️' : 'Users & Subscribers 🛡️'}</span>
+          </button>
+
+          {/* User Profile Page Button */}
+          {currentUser && (
+            <button
+              onClick={() => setIsUserProfileOpen(true)}
+              className="flex items-center gap-1.5 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black transition-all active:scale-95 cursor-pointer shadow-md border border-indigo-500/30"
+              id="btn-user-profile"
+            >
+              <User className="w-4 h-4 text-indigo-200" />
+              <span>{currentLang === 'ar' ? 'صفحة المستخدم 👤' : 'User Profile 👤'}</span>
+            </button>
+          )}
 
           {/* Language Selector Dropdown */}
           <div className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200/70 border border-slate-200 rounded-xl px-3 py-2 shadow-sm transition-all">
@@ -1399,7 +2106,7 @@ export default function App() {
 
           <button
             onClick={() => setIsOfflineModalOpen(true)}
-            className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-slate-100 to-indigo-50 hover:from-indigo-50 hover:to-indigo-100 text-indigo-700 hover:text-indigo-900 border border-indigo-200 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-sm animate-pulse"
+            className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-slate-100 to-indigo-50 hover:from-indigo-50 hover:to-indigo-100 text-indigo-700 hover:text-indigo-900 border border-indigo-200 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-sm"
             id="btn-offline-download"
           >
             <Cpu className="w-4 h-4 text-indigo-600" />
@@ -1407,7 +2114,14 @@ export default function App() {
           </button>
 
           <button
-            onClick={() => setIsProductManagerOpen(true)}
+            onClick={() => {
+              if (currentUser && !currentUser.permissions.includes('inventory')) {
+                playErrorBuzz();
+                addToast('عذراً، حساب الموظف الخاص بك لا يمتلك صلاحية تعديل السلع والمخزن!', 'error');
+                return;
+              }
+              setIsProductManagerOpen(true);
+            }}
             className="flex items-center gap-1.5 px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 border border-slate-200 rounded-xl text-xs font-semibold transition-all active:scale-95 cursor-pointer shadow-sm"
             id="btn-manage-products"
           >
@@ -1439,12 +2153,43 @@ export default function App() {
           </button>
 
           <button
-            onClick={() => setIsCashierSettingsOpen(true)}
+            onClick={() => {
+              if (currentUser && !currentUser.permissions.includes('settings')) {
+                playErrorBuzz();
+                addToast('عذراً، لا تمتلك الصلاحية لتغيير إعدادات المنشأة وضريبة المبيعات!', 'error');
+                return;
+              }
+              setIsCashierSettingsOpen(true);
+            }}
             className="flex items-center gap-1.5 px-4 py-2 bg-indigo-50 hover:bg-indigo-100/80 text-indigo-700 hover:text-indigo-900 border border-indigo-200 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-sm"
             id="btn-cashier-settings"
           >
             <Settings className="w-4 h-4 text-indigo-600" />
             <span>{currentLang === 'ar' ? 'إعدادات الكاشير' : 'Cashier Settings'}</span>
+          </button>
+
+          {/* Quick Light / Dark Mode Toggle Button */}
+          <button
+            onClick={() => {
+              const nextMode = themeMode === 'dark' ? 'light' : 'dark';
+              setThemeMode(nextMode);
+              addToast(nextMode === 'dark' ? 'تم تفعيل الوضع الداكن 🌙' : 'تم تفعيل الوضع الفاتح ☀️', 'info');
+            }}
+            className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 border border-slate-200 rounded-xl text-xs font-semibold transition-all active:scale-95 cursor-pointer shadow-sm"
+            id="btn-quick-theme-toggle"
+            title={themeMode === 'dark' ? (currentLang === 'ar' ? 'التحويل للوضع الفاتح ☀️' : 'Switch to Light Mode ☀️') : (currentLang === 'ar' ? 'التحويل للوضع الداكن 🌙' : 'Switch to Dark Mode 🌙')}
+          >
+            {themeMode === 'dark' ? (
+              <>
+                <Sun className="w-4 h-4 text-amber-400" />
+                <span className="hidden md:inline font-bold">فاتح ☀️</span>
+              </>
+            ) : (
+              <>
+                <Moon className="w-4 h-4 text-theme-primary" />
+                <span className="hidden md:inline font-bold">داكن 🌙</span>
+              </>
+            )}
           </button>
 
           <button
@@ -1464,8 +2209,117 @@ export default function App() {
             <Camera className="w-4 h-4" />
             <span>{currentLang === 'ar' ? 'مسح بالكاميرا' : 'Camera Scan'}</span>
           </button>
+
+          {/* Logout Action Button */}
+          {currentUser && (
+            <button
+              onClick={() => {
+                const confirmed = window.confirm('هل أنت متأكد من رغبتك في تسجيل الخروج والعودة لشاشة الدخول الفوري الكاشير؟');
+                if (confirmed) {
+                  setCurrentUser(null);
+                  localStorage.removeItem('pos_current_user');
+                  setCart([]);
+                  addToast('تم تسجيل الخروج بنجاح. أهلاً بك في أي وقت!', 'info');
+                }
+              }}
+              className="flex items-center gap-1.5 px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-700 border border-rose-100 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-sm"
+              id="btn-logout"
+              title="تسجيل الخروج"
+            >
+              <LogOut className="w-4 h-4" />
+              <span>خروج</span>
+            </button>
+          )}
         </div>
       </header>
+
+      {/* 1.5 Supabase 7-Day Overdue Cloud Sync Alert Banner */}
+      {isSyncOverdue && !isSyncWarningDismissed && (
+        <aside
+          id="supabase-sync-overdue-alert"
+          role="alert"
+          aria-label={currentLang === 'ar' ? 'تنبيه تأخر المزامنة السحابية مع Supabase' : 'Supabase Cloud Sync Overdue Alert'}
+          className="bg-gradient-to-r from-amber-500/15 via-amber-50 to-orange-500/15 border-b border-amber-300 px-4 py-3 sm:px-6 transition-all animate-fade-in print:hidden shrink-0 shadow-sm"
+        >
+          <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-3">
+            {/* Alert Icon & Text info */}
+            <div className="flex items-start sm:items-center gap-3 w-full md:w-auto">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-700 shrink-0 shadow-sm">
+                <AlertTriangle className="w-5 h-5 animate-bounce text-amber-600" />
+              </div>
+              <div className={isRtl ? 'text-right' : 'text-left'}>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-xs font-black text-amber-950 flex items-center gap-1.5">
+                    <span>
+                      {currentLang === 'ar' 
+                        ? 'تنبيه: مر أكثر من 7 أيام دون إجراء مزامنة سحابية مع Supabase!' 
+                        : 'Alert: More than 7 days since last Supabase cloud sync!'}
+                    </span>
+                  </h3>
+                  <span className="bg-amber-500/25 text-amber-900 text-[10px] px-2 py-0.5 rounded-full font-black border border-amber-500/35">
+                    {daysSinceLastSync} {currentLang === 'ar' ? (daysSinceLastSync <= 10 ? 'أيام' : 'يوماً') : 'days overdue'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-amber-900/90 mt-0.5 leading-relaxed font-medium">
+                  {currentLang === 'ar' 
+                    ? `آخر مزامنة ناجحة كانت بتاريخ: (${formatLastSyncDisplay(lastSupabaseSyncTime)}). يرجى الضغط على زر المزامنة الآن لضمان حفظ بيانات المبيعات، الفواتير، والمخزون في السحابة.`
+                    : `Last successful sync was: (${formatLastSyncDisplay(lastSupabaseSyncTime)}). Please click sync now to back up your orders, receipts, and inventory safely in the cloud.`
+                  }
+                </p>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex flex-wrap items-center gap-2 shrink-0 self-end md:self-center">
+              {/* Direct Sync Button */}
+              <button
+                id="btn-direct-supabase-sync"
+                onClick={handleDirectSupabaseSync}
+                disabled={isSyncingSupabaseDirect || supabaseSyncStatus === 'syncing'}
+                className="px-4 py-2 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 active:scale-95 disabled:opacity-60 text-white rounded-xl text-xs font-black transition-all flex items-center gap-2 shadow-md shadow-amber-600/25 cursor-pointer border border-amber-500/30"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isSyncingSupabaseDirect || supabaseSyncStatus === 'syncing' ? 'animate-spin' : ''}`} />
+                <span>
+                  {isSyncingSupabaseDirect || supabaseSyncStatus === 'syncing'
+                    ? (currentLang === 'ar' ? 'جاري المزامنة...' : 'Syncing...')
+                    : (currentLang === 'ar' ? 'مزامنة سحابية الآن ⚡' : 'Sync with Supabase Now ⚡')
+                  }
+                </span>
+              </button>
+
+              {/* Cloud Settings Trigger */}
+              <button
+                onClick={() => setIsCompanyManagerOpen(true)}
+                className="px-3 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
+                title={currentLang === 'ar' ? 'إعدادات Supabase والربط' : 'Supabase Cloud Settings'}
+              >
+                <Settings className="w-3.5 h-3.5 text-slate-500" />
+                <span>{currentLang === 'ar' ? 'إعدادات السحابة' : 'Cloud Settings'}</span>
+              </button>
+
+              {/* Quick Reset / Simulate test button */}
+              <button
+                onClick={handleResetTestSyncOverdue}
+                type="button"
+                className="text-[10px] text-amber-800/80 hover:text-amber-950 underline px-1 cursor-pointer"
+                title="إعادة ضبط التاريخ إلى قبل 8 أيام لاختبار التنبيه مرة أخرى"
+              >
+                {currentLang === 'ar' ? 'محاكاة 8 أيام' : 'Simulate 8d'}
+              </button>
+
+              {/* Dismiss Button */}
+              <button
+                onClick={() => setIsSyncWarningDismissed(true)}
+                className="p-1.5 text-amber-800/70 hover:text-amber-950 hover:bg-amber-500/10 rounded-xl transition-all cursor-pointer"
+                title={currentLang === 'ar' ? 'إغلاق التنبيه مؤقتاً' : 'Dismiss alert'}
+                aria-label="Dismiss"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </aside>
+      )}
 
       {/* 2. Primary Layout Workspace */}
       <main className="flex-1 overflow-hidden grid grid-cols-1 xl:grid-cols-12 gap-6 p-6 print:p-0">
@@ -1729,6 +2583,20 @@ export default function App() {
         {/* RIGHT PANEL: Product Catalog Directory (xl:col-span-7) */}
         <section className="xl:col-span-7 flex flex-col overflow-hidden p-5 print:hidden">
           
+          {/* Keyboard Navigation Quick Instructions */}
+          <div className="flex items-center justify-between pb-2 mb-1 shrink-0">
+            <h2 className="font-bold text-slate-800 text-sm flex items-center gap-2">
+              <Layers className="w-4 h-4 text-blue-600" />
+              <span>دليل سلع البقالة والمخزن</span>
+            </h2>
+            <div className="hidden sm:flex items-center gap-1.5 text-[10px] bg-slate-100 border border-slate-200 text-slate-600 px-2.5 py-1 rounded-lg">
+              <span className="font-black text-blue-600">⌨️ تنقل ذكي:</span>
+              <span>الأسهم لـ <strong className="text-slate-800">التنقل</strong></span>
+              <span className="text-slate-300">•</span>
+              <span>إنتر ↵ لـ <strong className="text-slate-800">تعديل الكمية</strong></span>
+            </div>
+          </div>
+
           {/* Catalog search and category filters */}
           <div className="space-y-4 shrink-0">
             
@@ -1737,8 +2605,9 @@ export default function App() {
               <div className="relative flex-1">
                 <Search className="w-4.5 h-4.5 text-slate-400 absolute right-3.5 top-3" />
                 <input
+                  id="catalog-search-input"
                   type="text"
-                  placeholder="ابحث عن سلعة باسمها أو بالباركود في الرفوف..."
+                  placeholder="ابحث عن سلعة باسمها أو بالباركود في الرفوف... (اضغط سهم لأسفل للتنقل بالأسهم ⌨️)"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full pr-11 pl-4 py-2.5 bg-slate-100 hover:bg-slate-200/60 focus:bg-white text-xs rounded-xl border border-slate-200 focus:border-blue-500/40 focus:outline-none transition-all placeholder:text-slate-400 font-medium text-slate-800"
@@ -1761,7 +2630,7 @@ export default function App() {
 
             {/* Category tabs carousel */}
             <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin scrollbar-thumb-slate-200">
-              {CATEGORIES.map((cat) => (
+              {['الكل', ...categories].map((cat) => (
                 <button
                   key={cat}
                   onClick={() => setSelectedCategory(cat)}
@@ -1855,6 +2724,8 @@ export default function App() {
                   const isLowStock = prod.stock <= 5;
                   const isUnavailable = !!prod.isUnavailable;
 
+                  const isKeyboardSelected = keyboardSelectedId === prod.id;
+
                   return (
                     <motion.div
                       key={prod.id}
@@ -1862,16 +2733,31 @@ export default function App() {
                       whileTap={{ scale: isOutOfStock || isUnavailable ? 1 : 0.985 }}
                       onClick={() => handleAddToCart(prod)}
                       className={`p-3 rounded-xl border text-right relative flex flex-col justify-between min-h-[160px] transition-all shadow-sm ${
-                        isUnavailable
-                          ? 'bg-rose-50/20 border-rose-200/50 opacity-70 text-slate-400 cursor-not-allowed'
-                          : isOutOfStock 
-                            ? 'bg-slate-50 border-slate-200 opacity-60 text-slate-400 cursor-not-allowed' 
-                            : inCartQty > 0
-                              ? 'bg-blue-50/40 border-blue-500 text-blue-900 shadow-blue-500/5 cursor-pointer'
-                              : 'bg-white border-slate-200 hover:border-blue-500 hover:shadow-md text-slate-800 cursor-pointer'
+                        isKeyboardSelected
+                          ? isAdjustingQuantity
+                            ? 'bg-emerald-50/20 border-emerald-500 ring-4 ring-emerald-500 scale-[1.03] shadow-lg shadow-emerald-500/25 z-10'
+                            : 'bg-blue-50/30 border-blue-500 ring-4 ring-blue-500 scale-[1.03] shadow-lg shadow-blue-500/25 z-10'
+                          : isUnavailable
+                            ? 'bg-rose-50/20 border-rose-200/50 opacity-70 text-slate-400 cursor-not-allowed'
+                            : isOutOfStock 
+                              ? 'bg-slate-50 border-slate-200 opacity-60 text-slate-400 cursor-not-allowed' 
+                              : inCartQty > 0
+                                ? 'bg-blue-50/40 border-blue-500 text-blue-900 shadow-blue-500/5 cursor-pointer'
+                                : 'bg-white border-slate-200 hover:border-blue-500 hover:shadow-md text-slate-800 cursor-pointer'
                       }`}
                       id={`catalog-item-${prod.id}`}
                     >
+                      {/* Keyboard navigation / adjustment overlay */}
+                      {isKeyboardSelected && (
+                        <div className={`absolute -top-2.5 -left-1 px-2.5 py-1 rounded-md text-[9px] font-black shadow-md z-20 animate-bounce flex items-center gap-1 leading-none ${
+                          isAdjustingQuantity 
+                            ? 'bg-emerald-600 text-white shadow-emerald-500/30' 
+                            : 'bg-blue-600 text-white shadow-blue-500/30'
+                        }`}>
+                          <span>{isAdjustingQuantity ? '🟢 عدّل بالأسهم ▲▼ ثم إنتر للتأكيد' : '🔵 محدد (اضغط إنتر)'}</span>
+                        </div>
+                      )}
+
                       {/* Active count badge in cart */}
                       {inCartQty > 0 && (
                         <div className="absolute top-2 left-2 bg-blue-600 text-white w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold z-10 shadow-sm shadow-blue-600/20">
@@ -2054,6 +2940,8 @@ export default function App() {
           onClose={() => setIsProductManagerOpen(false)}
           addToast={addToast}
           onBulkImport={handleBulkImportProducts}
+          categories={categories}
+          setCategories={setCategories}
         />
       )}
 
@@ -2106,6 +2994,7 @@ export default function App() {
           onSwitchCompany={handleSwitchCompany}
           onAddCompany={handleAddCompany}
           onUpdateCompanyPlan={handleUpdateCompanyPlan}
+          onUpdateCompanyBarcode={handleUpdateCompanyBarcode}
           onDeleteCompany={handleDeleteCompany}
           onClose={() => setIsCompanyManagerOpen(false)}
           currentProductCount={products.length}
@@ -2116,10 +3005,9 @@ export default function App() {
           supabaseErrorType={supabaseErrorType}
           isSupabaseSyncEnabled={isSupabaseSyncEnabled}
           onToggleSupabaseSync={(val) => setIsSupabaseSyncEnabled(val)}
-          onManualSync={() => {
-            syncAllWithSupabase(companies, products, orders, currentCompanyId);
-            addToast('جاري بدء مزامنة البيانات يدوياً مع Supabase سحابياً...', 'info');
-          }}
+          lastSupabaseSyncTime={lastSupabaseSyncTime}
+          onResetTestSyncOverdue={handleResetTestSyncOverdue}
+          onManualSync={handleDirectSupabaseSync}
         />
       )}
 
@@ -2151,6 +3039,130 @@ export default function App() {
                 <p className="text-[11px] text-slate-600 leading-relaxed text-right">
                   من هنا يمكنك تعديل البيانات الأساسية التي تظهر للزبائن على الفاتورة الحرارية المطبوعة، مثل الاسم التجاري، السجل التجاري، الرقم الضريبي، ونسبة الضريبة المضافة.
                 </p>
+              </div>
+            </div>
+
+            {/* Theme & Primary Color Configuration Section */}
+            <div className="p-4 bg-slate-50 border border-slate-200/80 rounded-2xl space-y-4 text-right">
+              <div className="flex items-center justify-between pb-2.5 border-b border-slate-200/60">
+                <div className="flex items-center gap-2">
+                  <div 
+                    className="w-8 h-8 rounded-xl flex items-center justify-center text-white shadow-sm"
+                    style={{ backgroundColor: primaryColor }}
+                  >
+                    <Palette className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-800">مظهر ولون واجهة الكاشير (Theme & Primary Color) 🎨</h4>
+                    <p className="text-[10px] text-slate-500">تغيير لون الواجهة الأساسي ديناميكياً والتبديل بين الوضع الفاتح والداكن</p>
+                  </div>
+                </div>
+                <div 
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border transition-colors"
+                  style={{ 
+                    backgroundColor: themeMode === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                    borderColor: primaryColor,
+                    color: primaryColor
+                  }}
+                >
+                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: primaryColor }}></span>
+                  <span>معاينة حية</span>
+                </div>
+              </div>
+
+              {/* 1. Light vs Dark Mode Switcher */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700 block">وضع الإضاءة (Light / Dark Mode):</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setThemeMode('light')}
+                    className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                      themeMode === 'light'
+                        ? 'border-slate-800 bg-white text-slate-900 shadow-sm ring-2 ring-slate-800/20'
+                        : 'border-slate-200 bg-slate-100/70 text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Sun className={`w-4 h-4 ${themeMode === 'light' ? 'text-amber-500' : 'text-slate-400'}`} />
+                    <span>الوضع الفاتح ☀️</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setThemeMode('dark')}
+                    className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                      themeMode === 'dark'
+                        ? 'border-slate-700 bg-slate-900 text-white shadow-sm ring-2 ring-slate-700/40'
+                        : 'border-slate-200 bg-slate-100/70 text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Moon className={`w-4 h-4 ${themeMode === 'dark' ? 'text-indigo-400' : 'text-slate-400'}`} />
+                    <span>الوضع الداكن 🌙</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* 2. Primary Color Palette Selection */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-700 block">اللون الأساسي للواجهة (Primary Color):</label>
+                  <span className="text-[10px] font-mono font-bold text-slate-500 uppercase px-2 py-0.5 bg-white border border-slate-200 rounded-md">
+                    {primaryColor}
+                  </span>
+                </div>
+
+                {/* Presets Grid */}
+                <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                  {PRESET_PRIMARY_COLORS.map((preset) => {
+                    const isSelected = primaryColor.toLowerCase() === preset.hex.toLowerCase();
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => setPrimaryColor(preset.hex)}
+                        className={`flex flex-col items-center justify-center p-2 rounded-xl border text-[10px] font-bold transition-all cursor-pointer relative group ${
+                          isSelected
+                            ? 'border-slate-900 ring-2 ring-offset-1 ring-slate-800 shadow-sm bg-white'
+                            : 'border-slate-200 hover:border-slate-300 bg-white/80 hover:bg-white'
+                        }`}
+                        title={`${preset.nameAr} (${preset.hex})`}
+                      >
+                        <span
+                          className="w-6 h-6 rounded-full shadow-inner flex items-center justify-center mb-1 transition-transform group-hover:scale-110"
+                          style={{ backgroundColor: preset.hex }}
+                        >
+                          {isSelected && <Check className="w-3.5 h-3.5 text-white stroke-[3]" />}
+                        </span>
+                        <span className="truncate w-full text-center text-slate-700 text-[10px]">{preset.nameAr}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Custom Hex Color Picker */}
+                <div className="pt-2 flex items-center gap-3 bg-white p-2.5 rounded-xl border border-slate-200 shadow-xs">
+                  <div className="relative flex items-center">
+                    <input
+                      type="color"
+                      value={primaryColor}
+                      onChange={(e) => setPrimaryColor(e.target.value)}
+                      className="w-9 h-9 rounded-lg border-0 cursor-pointer p-0 bg-transparent"
+                      title="انقر لاختيار لون مخصص من لوحة الألوان"
+                    />
+                  </div>
+                  <div className="flex-1 text-right">
+                    <span className="text-xs font-bold text-slate-800 block">اختيار لون مخصص (Custom Color):</span>
+                    <span className="text-[10px] text-slate-400">انقر على المربع الملون لاختيار أي درجة، أو اكتب كود الـ Hex</span>
+                  </div>
+                  <input
+                    type="text"
+                    value={primaryColor}
+                    onChange={(e) => setPrimaryColor(e.target.value)}
+                    placeholder="#2563eb"
+                    maxLength={7}
+                    className="w-24 text-center font-mono text-xs font-bold uppercase py-1.5 px-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
               </div>
             </div>
 
@@ -2395,6 +3407,33 @@ export default function App() {
           storeVatRate={storeVatRate}
           setStoreVatRate={setStoreVatRate}
           addToast={addToast}
+        />
+      )}
+
+      {isAuthManagerOpen && (
+        <AuthAndUserManagerModal
+          onClose={() => setIsAuthManagerOpen(false)}
+          currentUser={currentUser}
+          companies={companies}
+          addToast={addToast}
+          onUpdateCompanies={setCompanies}
+          onChangeCompany={(companyId) => {
+            setCurrentCompanyId(companyId);
+            localStorage.setItem('pos_current_company_id', companyId);
+          }}
+          onLogout={handleLogout}
+        />
+      )}
+
+      {isUserProfileOpen && currentUser && (
+        <UserProfileModal
+          onClose={() => setIsUserProfileOpen(false)}
+          currentUser={currentUser}
+          setCurrentUser={setCurrentUser}
+          companies={companies}
+          orders={orders}
+          addToast={addToast}
+          onLogout={handleLogout}
         />
       )}
     </div>

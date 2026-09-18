@@ -1,7 +1,6 @@
-import React, { useState } from 'react';
-import { Plus, Edit3, Trash2, Search, X, Check, Barcode, HelpCircle, PackageOpen, Sparkles, Download, Loader2, RefreshCw, AlertCircle, Upload, Image } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Plus, Edit3, Trash2, Search, X, Check, Barcode, HelpCircle, PackageOpen, Sparkles, Download, Loader2, RefreshCw, AlertCircle, Upload, Image, FolderTree } from 'lucide-react';
 import { Product } from '../types';
-import { CATEGORIES } from '../data/defaultProducts';
 
 // Global keyword matching to fetch beautiful high-quality Unsplash product images
 export const getProductImageByKeyword = (productName: string, productCategory: string = ''): string => {
@@ -77,6 +76,8 @@ interface ProductManagerProps {
   onClose: () => void;
   addToast?: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
   onBulkImport?: (itemsToAdd: Omit<Product, 'id'>[], itemsToEdit: Product[]) => void;
+  categories: string[];
+  setCategories: React.Dispatch<React.SetStateAction<string[]>>;
 }
 
 export default function ProductManager({
@@ -86,11 +87,20 @@ export default function ProductManager({
   onDeleteProduct,
   onClose,
   addToast,
-  onBulkImport
+  onBulkImport,
+  categories,
+  setCategories
 }: ProductManagerProps) {
+  const [activeTab, setActiveTab] = useState<'products' | 'categories'>('products');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('الكل');
   
+  // Category management inner states
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [editingCategoryName, setEditingCategoryName] = useState('');
+  const [editingCategoryIndex, setEditingCategoryIndex] = useState<number | null>(null);
+  const [categoryToDelete, setCategoryToDelete] = useState<string | null>(null);
+
   // Form State
   const [isEditing, setIsEditing] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -98,7 +108,7 @@ export default function ProductManager({
   const [price, setPrice] = useState<number | ''>('');
   const [costPrice, setCostPrice] = useState<number | ''>('');
   const [barcode, setBarcode] = useState('');
-  const [category, setCategory] = useState(CATEGORIES[1]); // Default to first actual category
+  const [category, setCategory] = useState(''); // Initialized dynamically in useEffect below
   const [stock, setStock] = useState<number | ''>('');
   const [image, setImage] = useState('');
   const [imageMode, setImageMode] = useState<'upload' | 'url'>('upload');
@@ -108,6 +118,13 @@ export default function ProductManager({
   const [showForm, setShowForm] = useState(false);
   const [formError, setFormError] = useState('');
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
+
+  // Synchronize first default category
+  useEffect(() => {
+    if (categories.length > 0 && !category) {
+      setCategory(categories[0]);
+    }
+  }, [categories, category]);
 
   // AI Products Generator State
   const [showAIGenerator, setShowAIGenerator] = useState(false);
@@ -281,7 +298,7 @@ export default function ProductManager({
     setPrice('');
     setCostPrice('');
     setBarcode('');
-    setCategory(CATEGORIES[1]);
+    setCategory(categories[0] || 'أخرى');
     setStock('');
     setImage('');
     setImageMode('upload');
@@ -346,7 +363,7 @@ export default function ProductManager({
             price: Number(p.price) || 0,
             costPrice: Number(p.costPrice) || 0,
             barcode: p.barcode || `628${Math.floor(1000000000 + Math.random() * 9000000000)}`,
-            category: p.category || CATEGORIES[1],
+            category: p.category || (categories[0] || 'أخرى'),
             stock: Number(p.stock) || 10,
             image: imgUrl,
             isSelected: true
@@ -680,8 +697,8 @@ export default function ProductManager({
 
         let categoryVal = mapped.category !== -1 && row[mapped.category] ? row[mapped.category].trim() : 'أخرى';
         // Fallback to valid categories if not matched
-        const matchedCategory = CATEGORIES.find(c => c.toLowerCase() === categoryVal.toLowerCase() || categoryVal.includes(c));
-        categoryVal = matchedCategory || CATEGORIES[1]; // default to first real category (like 'الألبان والأجبان' or similar)
+        const matchedCategory = categories.find(c => c.toLowerCase() === categoryVal.toLowerCase() || categoryVal.includes(c));
+        categoryVal = matchedCategory || (categories[0] || 'أخرى'); // default to first real category
 
         parsedItems.push({
           name: nameVal,
@@ -821,8 +838,35 @@ export default function ProductManager({
           </button>
         </div>
 
-        {/* Content Body: Two columns layout when adding/editing, else table */}
-        <div className="flex-1 overflow-hidden flex flex-col md:flex-row">
+        {/* Navigation Tabs */}
+        <div className="flex border-b border-gray-150 px-5 bg-white shrink-0">
+          <button
+            onClick={() => setActiveTab('products')}
+            className={`py-3 px-4 font-bold text-xs border-b-2 transition-all cursor-pointer flex items-center gap-1.5 ${
+              activeTab === 'products'
+                ? 'border-indigo-600 text-indigo-600 font-extrabold'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <PackageOpen className="w-4 h-4" />
+            <span>المنتجات والسلع</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('categories')}
+            className={`py-3 px-4 font-bold text-xs border-b-2 transition-all cursor-pointer flex items-center gap-1.5 ${
+              activeTab === 'categories'
+                ? 'border-indigo-600 text-indigo-600 font-extrabold'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <FolderTree className="w-4 h-4" />
+            <span>تصنيفات السلع (الأقسام)</span>
+          </button>
+        </div>
+
+        {activeTab === 'products' ? (
+          /* Content Body: Two columns layout when adding/editing, else table */
+          <div className="flex-1 overflow-hidden flex flex-col md:flex-row">
           
           {/* Main List column */}
           <div className="flex-1 p-5 overflow-y-auto flex flex-col gap-4">
@@ -844,7 +888,7 @@ export default function ProductManager({
                   onChange={(e) => setSelectedCategory(e.target.value)}
                   className="px-4 py-2.5 bg-gray-100/70 border border-transparent rounded-xl text-sm focus:outline-none focus:border-indigo-500/30 font-medium text-gray-700 cursor-pointer"
                 >
-                  {CATEGORIES.map((cat) => (
+                  {['الكل', ...categories].map((cat) => (
                     <option key={cat} value={cat}>{cat}</option>
                   ))}
                 </select>
@@ -1066,7 +1110,7 @@ export default function ProductManager({
                       onChange={(e) => setCategory(e.target.value)}
                       className="w-full px-3 py-2 bg-white text-xs border border-gray-200 focus:border-indigo-500 rounded-lg focus:outline-none transition-all text-gray-700 font-medium cursor-pointer"
                     >
-                      {CATEGORIES.slice(1).map((cat) => (
+                      {categories.map((cat) => (
                         <option key={cat} value={cat}>{cat}</option>
                       ))}
                     </select>
@@ -1517,7 +1561,7 @@ export default function ProductManager({
                                     onChange={(e) => handleUpdateGeneratedProductField(p.tempId, 'category', e.target.value)}
                                     className="text-[10px] text-indigo-700 bg-transparent hover:bg-gray-50 focus:bg-white rounded px-0.5 py-0.5 border-none focus:outline-none cursor-pointer text-right"
                                   >
-                                    {CATEGORIES.slice(1).map(cat => (
+                                    {categories.map(cat => (
                                       <option key={cat} value={cat}>{cat}</option>
                                     ))}
                                   </select>
@@ -1572,6 +1616,203 @@ export default function ProductManager({
             </div>
           )}
         </div>
+        ) : (
+          <div className="flex-1 p-5 overflow-y-auto flex flex-col gap-5 bg-slate-50/30 text-right" style={{ direction: 'rtl' }}>
+            <div className="p-4 bg-indigo-50/50 border border-indigo-100/50 rounded-2xl flex flex-col md:flex-row items-center gap-4 text-center md:text-right">
+              <div className="w-12 h-12 bg-indigo-100 rounded-2xl flex items-center justify-center shrink-0">
+                <FolderTree className="w-6 h-6 text-indigo-600" />
+              </div>
+              <div className="space-y-1">
+                <span className="text-sm font-bold text-indigo-950 block text-right">تنظيم وتعديل تصنيفات السلع</span>
+                <p className="text-[11px] text-slate-600 leading-relaxed text-right">
+                  يمكنك إضافة تصنيفات جديدة لتنظيم السلع والمنتجات داخل الكاشير بشكل مريح، أو تعديل وتغيير مسميات الأقسام الحالية، أو حذفها.
+                </p>
+              </div>
+            </div>
+
+            {/* Add category form */}
+            <div className="bg-white p-4 border border-gray-150 rounded-xl space-y-3">
+              <h4 className="font-bold text-gray-800 text-xs text-right">إضافة قسم/تصنيف جديد</h4>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="مثال: مستلزمات الرحلات، حلويات العيد..."
+                  value={newCategoryName}
+                  onChange={(e) => setNewCategoryName(e.target.value)}
+                  className="flex-1 px-3 py-2 bg-slate-50 border border-gray-200 focus:border-indigo-500 focus:bg-white text-xs rounded-lg focus:outline-none transition-all text-gray-800 font-semibold text-right"
+                />
+                <button
+                  onClick={() => {
+                    const trimmed = newCategoryName.trim();
+                    if (!trimmed) return;
+                    if (categories.includes(trimmed)) {
+                      addToast?.('هذا التصنيف موجود بالفعل!', 'warning');
+                      return;
+                    }
+                    setCategories(prev => [...prev, trimmed]);
+                    setNewCategoryName('');
+                    addToast?.(`تمت إضافة التصنيف الجديد "${trimmed}" بنجاح!`, 'success');
+                  }}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-lg transition-colors cursor-pointer flex items-center gap-1 shrink-0"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>إضافة تصنيف</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Categories list table */}
+            <div className="border border-gray-100 rounded-xl overflow-hidden bg-white">
+              <table className="w-full text-right text-xs">
+                <thead className="bg-gray-50 text-gray-500 font-semibold uppercase border-b border-gray-100">
+                  <tr>
+                    <th className="px-4 py-3 text-right">اسم التصنيف</th>
+                    <th className="px-4 py-3 text-center">عدد السلع المدرجة</th>
+                    <th className="px-4 py-3 text-left">التحكم</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 text-gray-700">
+                  {categories.map((cat, idx) => {
+                    const count = products.filter(p => p.category === cat).length;
+                    const isEditingThis = editingCategoryIndex === idx;
+
+                    return (
+                      <tr key={cat} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="px-4 py-3 text-right">
+                          {isEditingThis ? (
+                            <input
+                              type="text"
+                              value={editingCategoryName}
+                              onChange={(e) => setEditingCategoryName(e.target.value)}
+                              className="px-2 py-1 border border-indigo-500 focus:outline-none rounded text-xs font-semibold w-full max-w-xs text-right"
+                              autoFocus
+                            />
+                          ) : (
+                            <span className="font-bold text-gray-900">{cat}</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-center font-mono font-semibold text-indigo-600">
+                          {count} {count === 1 ? 'سلعة' : 'سلع'}
+                        </td>
+                        <td className="px-4 py-3 text-left">
+                          <div className="flex items-center gap-1 justify-end">
+                            {isEditingThis ? (
+                              <>
+                                <button
+                                  onClick={() => {
+                                    const trimmed = editingCategoryName.trim();
+                                    if (!trimmed) return;
+                                    if (trimmed === cat) {
+                                      setEditingCategoryIndex(null);
+                                      return;
+                                    }
+                                    if (categories.includes(trimmed)) {
+                                      addToast?.('هذا الاسم موجود بالفعل لتصنيف آخر!', 'warning');
+                                      return;
+                                    }
+                                    // Rename category in categories list
+                                    setCategories(prev => prev.map((c, i) => i === idx ? trimmed : c));
+                                    // Update category for all products belonging to it!
+                                    products.forEach(p => {
+                                      if (p.category === cat) {
+                                        onEditProduct({ ...p, category: trimmed });
+                                      }
+                                    });
+                                    setEditingCategoryIndex(null);
+                                    addToast?.(`تم تغيير اسم التصنيف إلى "${trimmed}" وتحديث المنتجات المرتبطة به.`, 'success');
+                                  }}
+                                  className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[10px] font-bold transition-colors cursor-pointer"
+                                >
+                                  حفظ
+                                </button>
+                                <button
+                                  onClick={() => setEditingCategoryIndex(null)}
+                                  className="px-2.5 py-1 bg-gray-150 hover:bg-gray-200 text-gray-700 rounded-lg text-[10px] font-bold transition-colors cursor-pointer"
+                                >
+                                  إلغاء
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button
+                                  onClick={() => {
+                                    setEditingCategoryIndex(idx);
+                                    setEditingCategoryName(cat);
+                                  }}
+                                  className="p-1.5 hover:bg-indigo-50 text-indigo-500 hover:text-indigo-700 rounded-lg transition-colors cursor-pointer"
+                                  title="تعديل اسم التصنيف"
+                                >
+                                  <Edit3 className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => setCategoryToDelete(cat)}
+                                  className="p-1.5 hover:bg-rose-50 text-rose-500 hover:text-rose-700 rounded-lg transition-colors cursor-pointer"
+                                  title="حذف التصنيف"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Category Delete Confirmation Overlay Modal */}
+        {categoryToDelete && (
+          <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-50 p-4 animate-fade-in text-right">
+            <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl border border-slate-100 text-center flex flex-col gap-4 max-h-[90%] overflow-y-auto">
+              <div className="w-12 h-12 rounded-full bg-rose-50 flex items-center justify-center text-rose-600 mx-auto">
+                <Trash2 className="w-6 h-6 animate-pulse" />
+              </div>
+              <div>
+                <h4 className="font-bold text-gray-900 text-base">حذف قسم "{categoryToDelete}"؟</h4>
+                <p className="text-gray-500 text-xs mt-2 leading-relaxed">
+                  هذا القسم يحتوي على <span className="font-mono font-bold text-indigo-600">{products.filter(p => p.category === categoryToDelete).length}</span> منتجات. هل أنت متأكد من حذف القسم؟ سيتم نقل كافة المنتجات التابعة له تلقائياً إلى قسم "أخرى".
+                </p>
+              </div>
+              <div className="flex gap-2.5 mt-2">
+                <button
+                  onClick={() => {
+                    const cat = categoryToDelete;
+                    // Delete category from categories list
+                    setCategories(prev => prev.filter(c => c !== cat));
+                    // Check if 'أخرى' is in categories, if not, add it
+                    setCategories(prev => {
+                      if (!prev.includes('أخرى')) {
+                        return [...prev, 'أخرى'];
+                      }
+                      return prev;
+                    });
+                    // Change category for all products belonging to it
+                    products.forEach(p => {
+                      if (p.category === cat) {
+                        onEditProduct({ ...p, category: 'أخرى' });
+                      }
+                    });
+                    setCategoryToDelete(null);
+                    addToast?.(`تم حذف قسم "${cat}" ونقل منتجاته إلى قسم "أخرى".`, 'info');
+                  }}
+                  className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white text-xs font-bold rounded-xl transition-all cursor-pointer shadow-sm"
+                >
+                  نعم، حذف ونقل المنتجات
+                </button>
+                <button
+                  onClick={() => setCategoryToDelete(null)}
+                  className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 active:scale-95 text-gray-700 text-xs font-bold rounded-xl transition-all cursor-pointer"
+                >
+                  إلغاء
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Delete Confirmation Overlay Modal */}
         {productToDelete && (

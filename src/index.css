@@ -6,6 +6,189 @@
   --font-mono: "JetBrains Mono", monospace;
 }
 
+/* ==========================================================================
+   Dynamic Theme Variables & Primary Color Root
+   ========================================================================== */
+:root {
+  --primary-color: #2563eb;
+  --primary-hover: #1d4ed8;
+  --primary-light: rgba(37, 99, 235, 0.08);
+  --primary-border: rgba(37, 99, 235, 0.25);
+  --primary-rgb: 37, 99, 235;
+  --primary-text: #ffffff;
+}
+
+/* Dynamic Primary Color Utility Classes */
+.bg-theme-primary {
+  background-color: var(--primary-color) !important;
+  color: var(--primary-text) !important;
+}
+
+.hover\:bg-theme-primary-hover:hover {
+  background-color: var(--primary-hover) !important;
+}
+
+.text-theme-primary {
+  color: var(--primary-color) !important;
+}
+
+.border-theme-primary {
+  border-color: var(--primary-color) !important;
+}
+
+.bg-theme-primary-light {
+  background-color: var(--primary-light) !important;
+  color: var(--primary-color) !important;
+}
+
+.border-theme-primary-light {
+  border-color: var(--primary-border) !important;
+}
+
+.ring-theme-primary:focus {
+  outline: none !important;
+  border-color: var(--primary-color) !important;
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.25) !important;
+}
+
+/* Dynamic CSS variable overrides for existing primary elements across POS */
+.bg-blue-600,
+.bg-indigo-600 {
+  background-color: var(--primary-color) !important;
+  color: var(--primary-text) !important;
+}
+
+.hover\:bg-blue-700:hover,
+.hover\:bg-indigo-700:hover {
+  background-color: var(--primary-hover) !important;
+}
+
+.text-blue-600,
+.text-indigo-600 {
+  color: var(--primary-color) !important;
+}
+
+.border-blue-500,
+.border-indigo-500 {
+  border-color: var(--primary-color) !important;
+}
+
+.bg-blue-50,
+.bg-indigo-50 {
+  background-color: var(--primary-light) !important;
+}
+
+.border-blue-100,
+.border-indigo-100 {
+  border-color: var(--primary-border) !important;
+}
+
+/* ==========================================================================
+   Dark Mode Theme System (Composed for comfortable high-contrast POS use)
+   ========================================================================== */
+.dark body,
+.dark #pos-root {
+  background-color: #0b0f19 !important;
+  color: #f1f5f9 !important;
+}
+
+.dark header {
+  background-color: #111827 !important;
+  border-color: #1f2937 !important;
+}
+
+.dark footer {
+  background-color: #111827 !important;
+  border-color: #1f2937 !important;
+  color: #94a3af !important;
+}
+
+.dark section,
+.dark aside,
+.dark .bg-white {
+  background-color: #111827 !important;
+  color: #f3f4f6 !important;
+}
+
+.dark .bg-slate-50 {
+  background-color: #0b0f19 !important;
+  color: #e2e8f0 !important;
+}
+
+.dark .bg-slate-100 {
+  background-color: #1a2234 !important;
+  color: #e2e8f0 !important;
+}
+
+.dark .hover\:bg-slate-50:hover,
+.dark .hover\:bg-slate-100:hover,
+.dark .hover\:bg-slate-200\/60:hover {
+  background-color: #1f293d !important;
+}
+
+.dark .border-slate-100,
+.dark .border-slate-200,
+.dark .border-slate-300 {
+  border-color: #1f2a3e !important;
+}
+
+.dark .text-slate-900,
+.dark .text-slate-800,
+.dark .text-slate-700 {
+  color: #f1f5f9 !important;
+}
+
+.dark strong.text-slate-700,
+.dark strong.text-slate-800 {
+  color: #ffffff !important;
+}
+
+.dark .text-slate-600,
+.dark .text-slate-500 {
+  color: #94a3b8 !important;
+}
+
+.dark .text-slate-400 {
+  color: #64748b !important;
+}
+
+.dark input,
+.dark select,
+.dark textarea {
+  background-color: #172033 !important;
+  color: #f9fafb !important;
+  border-color: #27354f !important;
+}
+
+.dark input::placeholder {
+  color: #64748b !important;
+}
+
+.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
+.dark .divide-slate-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #1f2a3e !important;
+}
+
+/* Modals & Dialogs in Dark Mode */
+.dark .bg-white.rounded-3xl,
+.dark .bg-white.rounded-2xl,
+.dark .bg-white.rounded-xl {
+  background-color: #111827 !important;
+  border-color: #222f46 !important;
+}
+
+/* Ensure thermal receipt paper card remains genuine white paper in previews */
+.dark .thermal-receipt-paper,
+.dark #receipt-container > div {
+  background-color: #ffffff !important;
+  color: #111827 !important;
+}
+
+.dark .thermal-receipt-paper *,
+.dark #receipt-container * {
+  color: #111827;
+}
+
 /* Custom scrollbars for slick dashboard grids */
 .scrollbar-thin::-webkit-scrollbar {
   height: 4px;
