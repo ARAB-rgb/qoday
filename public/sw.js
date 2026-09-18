@@ -1,16 +1,11 @@
-const CACHE_NAME = 'albaraka-pos-v1';
-const ASSETS_TO_CACHE = [
-  '/',
-  '/index.html',
-  '/manifest.json'
-];
+/**
+ * نظام قيد (QAYD POS) - Service Worker الآمن للإنتاج والتطوير
+ * Safe Cache-First / Network-Fallback without caching dynamic dev scripts or Vite chunks
+ */
+
+const CACHE_NAME = 'qayd-pos-v3';
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS_TO_CACHE);
-    })
-  );
   self.skipWaiting();
 });
 
@@ -24,47 +19,48 @@ self.addEventListener('activate', (event) => {
           }
         })
       );
-    })
+    }).then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
 self.addEventListener('fetch', (event) => {
-  // Only handle GET requests, and ignore backend /api/ calls
-  if (event.request.method !== 'GET' || event.request.url.includes('/api/')) {
+  const request = event.request;
+
+  // Skip non-GET, API calls, and vite/hmr hot modules
+  if (
+    request.method !== 'GET' ||
+    request.url.includes('/api/') ||
+    request.url.includes('/@vite/') ||
+    request.url.includes('/@fs/') ||
+    request.url.includes('node_modules')
+  ) {
     return;
   }
 
-  event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        // Stale-while-revalidate: Serve from cache, fetch from network in background
-        fetch(event.request)
-          .then((networkResponse) => {
-            if (networkResponse.status === 200) {
-              caches.open(CACHE_NAME).then((cache) => {
-                cache.put(event.request, networkResponse);
-              });
-            }
-          })
-          .catch(() => {
-            // Ignore background fetch errors (e.g. when offline)
-          });
-        return cachedResponse;
-      }
+  // Network-first strategy for index.html & navigation so code updates load immediately
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request).catch(() => {
+        return caches.match('/index.html') || caches.match('/');
+      })
+    );
+    return;
+  }
 
-      return fetch(event.request).then((networkResponse) => {
-        if (!networkResponse || networkResponse.status !== 200) {
-          return networkResponse;
+  // For static assets (images, fonts, css, js)
+  event.respondWith(
+    fetch(request)
+      .then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
+          const responseToCache = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(request, responseToCache);
+          });
         }
-        const responseToCache = networkResponse.clone();
-        caches.open(CACHE_NAME).then((cache) => {
-          cache.put(event.request, responseToCache);
-        });
         return networkResponse;
-      }).catch(() => {
-        // Network error (offline and not cached)
-      });
-    })
+      })
+      .catch(() => {
+        return caches.match(request);
+      })
   );
 });

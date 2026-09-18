@@ -7,16 +7,70 @@ export interface PrimaryColorPreset {
   hex: string;
 }
 
+export interface ThemeProfile {
+  id: string;
+  nameAr: string;
+  nameEn: string;
+  descriptionAr: string;
+  mode: ThemeMode;
+  primaryColor: string;
+  badge: string;
+  previewBg: string;
+  previewCard: string;
+  previewAccent: string;
+}
+
 export const PRESET_PRIMARY_COLORS: PrimaryColorPreset[] = [
-  { id: 'blue', nameAr: 'أزرق ملكي', nameEn: 'Royal Blue', hex: '#2563eb' },
-  { id: 'indigo', nameAr: 'نيلي كلاسيكي', nameEn: 'Indigo', hex: '#4f46e5' },
-  { id: 'emerald', nameAr: 'زمردي تجاري', nameEn: 'Emerald Green', hex: '#059669' },
+  { id: 'blue', nameAr: 'أزرق ملكي (فاتح)', nameEn: 'Royal Blue', hex: '#2563eb' },
+  { id: 'white', nameAr: 'أبيض ناصع (تباين)', nameEn: 'Pure White', hex: '#ffffff' },
+  { id: 'matte-dark', nameAr: 'أسود مطفي فاخر', nameEn: 'Matte Charcoal', hex: '#18181b' },
+  { id: 'cyan', nameAr: 'سماوي رقمي', nameEn: 'Digital Cyan', hex: '#0284c7' },
+  { id: 'indigo', nameAr: 'نيلي كلاسيكي', nameEn: 'Classic Indigo', hex: '#4f46e5' },
   { id: 'teal', nameAr: 'تركوازي قيد', nameEn: 'Teal Qayd', hex: '#0d9488' },
+  { id: 'emerald', nameAr: 'زمردي تجاري', nameEn: 'Emerald Green', hex: '#059669' },
   { id: 'violet', nameAr: 'بنفسجي عصري', nameEn: 'Modern Violet', hex: '#7c3aed' },
   { id: 'rose', nameAr: 'ياقوتي جذاب', nameEn: 'Vibrant Rose', hex: '#e11d48' },
   { id: 'amber', nameAr: 'كهرماني ذهبي', nameEn: 'Warm Amber', hex: '#d97706' },
-  { id: 'cyan', nameAr: 'سماوي رقمي', nameEn: 'Digital Cyan', hex: '#0891b2' },
-  { id: 'slate', nameAr: 'فحمي أنيق', nameEn: 'Slate Charcoal', hex: '#475569' }
+  { id: 'slate', nameAr: 'رمادي حجري', nameEn: 'Slate Stone', hex: '#475569' }
+];
+
+export const THEME_PROFILES: ThemeProfile[] = [
+  {
+    id: 'white-blue',
+    nameAr: 'أبيض وأزرق (فاتح)',
+    nameEn: 'White & Blue (Light)',
+    descriptionAr: 'شاشة بيضاء ناصعة ومريحة مع عناصر وأزرار كاشير باللون الأزرق الملكي',
+    mode: 'light',
+    primaryColor: '#2563eb',
+    badge: 'الأبيض والأزرق ☀️',
+    previewBg: '#ffffff',
+    previewCard: '#f8fafc',
+    previewAccent: '#2563eb'
+  },
+  {
+    id: 'matte-black-white',
+    nameAr: 'أسود مطفي وأبيض (داكن)',
+    nameEn: 'Matte Black & White (Dark)',
+    descriptionAr: 'شاشة سوداء مطفية فاخرة غير عاكسة مع نصوص وأزرار بيضاء عالية التباين والوضوح',
+    mode: 'dark',
+    primaryColor: '#ffffff',
+    badge: 'الأسود المطفي والأبيض 🌙',
+    previewBg: '#121212',
+    previewCard: '#18181b',
+    previewAccent: '#ffffff'
+  },
+  {
+    id: 'matte-black-blue',
+    nameAr: 'أسود مطفي وأزرق (داكن)',
+    nameEn: 'Matte Black & Blue (Dark)',
+    descriptionAr: 'خلفية سوداء مطفية هادئة مع تفاصيل وأزرار باللون الأزرق المضيء',
+    mode: 'dark',
+    primaryColor: '#3b82f6',
+    badge: 'الأسود المطفي والأزرق 🔵',
+    previewBg: '#121212',
+    previewCard: '#18181b',
+    previewAccent: '#3b82f6'
+  }
 ];
 
 export const DEFAULT_PRIMARY_COLOR = '#2563eb';
