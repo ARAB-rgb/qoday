@@ -11,7 +11,7 @@ import {
   Cookie, Sparkle, Camera, HelpCircle, Package, Layers, Gift,
   Cpu, Scale, X, Settings, LogOut, User,
   AlertTriangle, Cloud, RefreshCw, AlertCircle,
-  Sun, Moon, Palette, KeyRound, Lock
+  Sun, Moon, Palette, KeyRound, Lock, Globe, CheckCircle2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
@@ -390,6 +390,9 @@ export default function App() {
 
   useEffect(() => {
     localStorage.setItem('pos_lang', currentLang);
+    const isRtl = currentLang === 'ar' || currentLang === 'ur';
+    document.documentElement.dir = isRtl ? 'rtl' : 'ltr';
+    document.documentElement.lang = currentLang;
   }, [currentLang]);
 
   const [showOnlyLowStock, setShowOnlyLowStock] = useState<boolean>(false);
@@ -3083,6 +3086,9 @@ export default function App() {
             setActiveReceiptOrder(ord);
           }}
           onClose={() => setIsHistoryOpen(false)}
+          lang={currentLang}
+          storeName={storeName}
+          storeVat={storeVat}
         />
       )}
 
@@ -3359,6 +3365,76 @@ export default function App() {
                     className="w-24 text-center font-mono text-xs font-bold uppercase py-1.5 px-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500"
                   />
                 </div>
+              </div>
+            </div>
+
+            {/* Full i18n & Bilingual Printing System Section */}
+            <div className="p-4 bg-slate-50 border border-slate-200/80 rounded-2xl space-y-3.5 text-right">
+              <div className="flex items-center justify-between pb-2.5 border-b border-slate-200/60">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center shadow-xs">
+                    <Globe className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-800">
+                      تعدد اللغات الكامل ونظام الطباعة المزدوجة (Full i18n & Localization) 🌐
+                    </h4>
+                    <p className="text-[10px] text-slate-500">
+                      تغيير لغة البرنامج بالكامل مع اعتماد الطباعة المزدوجة (العربية أساسية دائماً)
+                    </p>
+                  </div>
+                </div>
+                <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-full">
+                  {LANGUAGES.find(l => l.code === currentLang)?.name} ({currentLang.toUpperCase()})
+                </span>
+              </div>
+
+              {/* Language selection interactive cards */}
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-700 block">
+                  اختر لغة واجهة النظام (Select System Language):
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {LANGUAGES.map((langItem) => {
+                    const isSelected = currentLang === langItem.code;
+                    return (
+                      <button
+                        key={langItem.code}
+                        type="button"
+                        onClick={() => {
+                          setCurrentLang(langItem.code);
+                          addToast(`تم تحويل لغة النظام إلى ${langItem.nativeName} (${langItem.name}) بنجاح!`, 'success');
+                        }}
+                        className={`p-3 rounded-xl border text-right transition-all cursor-pointer flex flex-col justify-between ${
+                          isSelected
+                            ? 'border-indigo-600 bg-white ring-2 ring-indigo-500/20 shadow-sm'
+                            : 'border-slate-200 bg-white/80 hover:bg-white hover:border-slate-300 shadow-2xs'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-lg">{langItem.flag}</span>
+                          {isSelected && <Check className="w-4 h-4 text-indigo-600" />}
+                        </div>
+                        <div className="mt-2">
+                          <div className="font-bold text-xs text-slate-900">{langItem.nativeName}</div>
+                          <div className="text-[10px] text-slate-500 font-sans">{langItem.name}</div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Bilingual Printing Rule Box */}
+              <div className="p-3 bg-indigo-50/60 border border-indigo-100 rounded-xl space-y-1.5 text-[11px] text-slate-700">
+                <div className="flex items-center gap-1.5 font-bold text-indigo-950">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>قاعدة الطباعة المزدوجة المعتمدة (Bilingual Invoices & Reports):</span>
+                </div>
+                <p className="text-slate-600 text-[10px] leading-relaxed">
+                  • <strong>اللغة العربية</strong> هي العنصر الأساسي والرئيسي والمسيطر دائماً في كافة الفواتير المطبوعة وتقارير المبيعات امتثالاً لمتطلبات هيئة الزكاة والضريبة والجمارك (ZATCA).<br />
+                  • عند اختيار أي لغة أخرى للموقع (مثل الإنجليزية)، يتم إظهار النصوص بصيغة ثنائية واضحة (مثال: <em>الإجمالي / Total</em> أو <em>اسم السلعة / Product Name</em>).
+                </p>
               </div>
             </div>
 
